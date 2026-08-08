@@ -1,0 +1,197 @@
+// Relay — data model
+//
+// Postgres is the only source of truth. Every event that enters Relay lands
+// here first and stays here permanently; Redis holds nothing but a bounded
+// window of delivery IDs that are executable right now.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Tenancy ────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  projects Project[]
+
+  @@map("users")
+}
+
+model Project {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKeys  ApiKey[]
+  webhooks Webhook[]
+  events   Event[]
+
+  @@index([userId])
+  @@map("projects")
+}
+
+/// An API key authenticates machine callers on the ingest path.
+///
+/// Only the hash is stored — the plaintext is shown to the user exactly once,
+/// at creation. `prefix` holds the short human-readable head of the key so the
+/// dashboard can display "rlk_live_a1b2…" without being able to reconstruct it.
+model ApiKey {
+  id         String    @id @default(uuid()) @db.Uuid
+  projectId  String    @db.Uuid
+  name       String
+  hashedKey  String    @unique
+  prefix     String
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("api_keys")
+}
+
+// ─── Webhooks ───────────────────────────────────────────────────────────────
+
+/// A customer endpoint. `secret` signs outbound payloads so the receiver can
+/// verify the request genuinely came from Relay.
+model Webhook {
+  id          String   @id @default(uuid()) @db.Uuid
+  projectId   String   @db.Uuid
+  url         String
+  secret      String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project    Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deliveries Delivery[]
+
+  @@index([projectId])
+  @@map("webhooks")
+}
+
+// ─── Events and deliveries ──────────────────────────────────────────────────
+
+/// The immutable record that something happened. Written once at ingest and
+/// never mutated — all mutable delivery state lives on Delivery instead.
+///
+/// `idempotencyKey` lets a client retry a publish without duplicating the
+/// event; it is unique per project, not globally.
+model Event {
+  id             String   @id @default(uuid()) @db.Uuid
+  projectId      String   @db.Uuid
+  eventType      String
+  payload        Json
+  idempotencyKey String?
+  createdAt      DateTime @default(now())
+
+  project    Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deliveries Delivery[]
+
+  @@unique([projectId, idempotencyKey])
+  @@index([projectId, createdAt])
+  @@map("events")
+}
+
+/// One delivery attempt-stream, for one event against one webhook.
+///
+/// This is the row the Execution Window schedules. Splitting it out from Event
+/// is what makes fan-out correct: an event sent to three webhooks has three
+/// independent outcomes, and a single status column on Event could not hold
+/// "delivered to two, still retrying the third".
+model Delivery {
+  id        String         @id @default(uuid()) @db.Uuid
+  eventId   String         @db.Uuid
+  webhookId String         @db.Uuid
+  status    DeliveryStatus @default(PENDING)
+
+  /// Count of delivery attempts made so far. Compared against MAX_ATTEMPTS to
+  /// decide between another retry and terminal failure.
+  attempt Int @default(0)
+
+  /// Earliest moment the scheduler may return this to the execution window.
+  /// Null while PENDING (eligible immediately), set on every failure.
+  nextRetryAt DateTime?
+
+  /// Set when a worker claims this delivery. The scheduler's reaper treats a
+  /// PROCESSING row whose lock is older than LEASE_TIMEOUT_MS as abandoned by
+  /// a dead worker and returns it to WAITING.
+  lockedAt DateTime?
+
+  lastError      String?
+  responseStatus Int?
+  deliveredAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event   Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  attempts DeliveryAttempt[]
+
+  /// The scheduler's hot path: find deliveries that are eligible to run, oldest
+  /// first. This index is what keeps that query fast once the table holds
+  /// millions of rows during a long outage.
+  @@index([status, nextRetryAt])
+
+  /// Supports the reaper's scan for expired leases.
+  @@index([status, lockedAt])
+
+  @@index([eventId])
+  @@index([webhookId])
+  @@map("deliveries")
+}
+
+/// An audit row per individual HTTP attempt, kept for the delivery-history UI.
+/// Delivery holds current state; this holds the history behind it.
+model DeliveryAttempt {
+  id             String   @id @default(uuid()) @db.Uuid
+  deliveryId     String   @db.Uuid
+  attempt        Int
+  responseStatus Int?
+  errorMessage   String?
+  durationMs     Int
+  attemptedAt    DateTime @default(now())
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryId, attempt])
+  @@map("delivery_attempts")
+}
+
+enum DeliveryStatus {
+  /// Persisted, never yet scheduled.
+  PENDING
+
+  /// Sitting in the Redis execution window, waiting for a worker.
+  QUEUED
+
+  /// Claimed by a worker; an HTTP request is in flight.
+  PROCESSING
+
+  /// Attempt failed, retry scheduled for nextRetryAt. Crucially, the job is
+  /// NOT in Redis while in this state — that is what bounds Redis memory.
+  WAITING
+
+  /// Endpoint returned 2xx. Terminal.
+  DELIVERED
+
+  /// Exhausted MAX_ATTEMPTS. Terminal, but replayable on request.
+  FAILED
+}

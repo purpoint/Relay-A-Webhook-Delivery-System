@@ -43,9 +43,16 @@ export const logger = pino({
 });
 
 /**
+ * Handing this instance to Fastify makes the resulting FastifyInstance generic
+ * over this exact logger type rather than the default FastifyBaseLogger, so
+ * anything typed against the app needs to name it. See src/types/app.ts.
+ */
+export type AppLogger = typeof logger;
+
+/**
  * A logger tagged with the component it belongs to, so scheduler, worker and
  * API lines stay distinguishable once they're interleaved in one stream.
  */
-export function componentLogger(component: string) {
+export function componentLogger(component: string): AppLogger {
   return logger.child({ component });
 }

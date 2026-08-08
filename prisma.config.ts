@@ -9,6 +9,8 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    // The CLI needs a URL to run migrations against. Fail loudly here rather
+    // than letting Prisma report a confusing "no datasource" error later.
+    url: process.env["DATABASE_URL"] ?? "",
   },
 });

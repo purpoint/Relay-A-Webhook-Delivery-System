@@ -1,8 +1,8 @@
 # Relay — Milestones
 
-The build sequence for V1. Each milestone ends in a state that runs, is committed, and can be demonstrated on its own. Nothing is "finished later."
+The build sequence. Each milestone ends in a state that runs, is committed, and can be demonstrated on its own. Nothing is "finished later."
 
-**Scope of V1:** backend only. Swagger UI serves as the interim dashboard.
+**M0–M5 are backend only**, with Swagger UI as the interim interface. **M6 adds a single frontend screen** — the live execution-window monitor — and **M7 deploys it.** The frontend deliberately comes last: it exists to make the backend's central property visible, so it cannot be built before that property exists.
 
 ---
 
@@ -150,6 +150,66 @@ That single observation — 50,000 durable in Postgres, never more than 5,000 re
 
 ---
 
+## M6 — Live execution-window monitor
+
+Goal: make the architecture visible in ten seconds, to someone who will not read the code.
+
+**Not started until M5 is complete.** There is no point building a display before the thing it displays exists.
+
+### Why this exists
+
+Relay's best property is also its least visible. "Redis memory stays flat regardless of backlog size" is, on a repository page, a sentence someone has to take on trust. The M5 load test proves it — but the proof is `redis-cli LLEN` in a terminal loop, which persuades only a reader who is already deep in the code.
+
+One page fixes that:
+
+```
+Postgres    47,382 events stored     ████████████████████░   climbing
+Redis        5,000 / 5,000 jobs      ██████████████████████  flat
+
+WAITING 42,381 · QUEUED 5,000 · PROCESSING 10 · DELIVERED 1 · FAILED 0
+```
+
+Flip the receiver from failing to healthy and watch the backlog drain to zero without restarting anything.
+
+### Deliberately narrow scope
+
+**One screen.** No CRUD forms for projects, webhooks or API keys.
+
+That admin surface is the bulk of the frontend work, demonstrates nothing unusual, and actively dilutes the project — "webhook platform with a React dashboard" reads like every other portfolio entry, while "bounded-memory webhook delivery, proven under a 50,000-event backlog" does not. Build the screen that shows the hard part; skip the rest.
+
+### Backend work this forces
+
+Three things the API needs before any browser can talk to it. They are backend tasks, listed here because the frontend is what creates the need.
+
+- **CORS** (`@fastify/cors`) with an explicit origin allowlist. Never `*`, since requests carry credentials.
+- **Refresh tokens.** Access tokens expire in an hour with no renewal path. Fine for a script; for a person using a dashboard it means being logged out mid-task, hourly, with no warning.
+- **A decision on where the browser keeps its token.** `localStorage` is readable by any injected script, so one XSS bug surrenders every session. An httpOnly cookie is unreadable by JavaScript but brings CSRF into scope. There is no cost-free option; pick deliberately.
+
+### Stack
+
+Vite + React + TanStack Query. The page sits behind a login and has no public content, so server-side rendering buys nothing that would justify Next.js's additional machinery.
+
+Live updates via polling on a short interval. Server-sent events would be tidier, and can replace polling later — it is not worth the extra moving part for the first version.
+
+**Done when:** a single page shows Postgres and Redis counts updating live during the M5 load test, with the Redis gauge visibly pinned at its ceiling while the Postgres count climbs past it.
+
+---
+
+## M7 — Deploy
+
+Goal: a URL, not a repository.
+
+A running system is worth considerably more than source code — anyone can clone a repo; far fewer can point at something operating. This is also what gives M6's monitor somewhere to live.
+
+- Host the API, scheduler, worker, Postgres and Redis (Railway or Fly.io; both handle the multi-process shape cheaply)
+- Run migrations on deploy
+- Real secrets from the platform's secret store, never from a committed file
+- Public URL in the README, alongside the monitor
+
+**Done when:** someone with the link can watch the execution window hold its ceiling, without installing anything.
+
+---
+
 ## Configuration
 
 | Variable | Default | Meaning |
@@ -166,6 +226,8 @@ That single observation — 50,000 durable in Postgres, never more than 5,000 re
 
 ---
 
-## Deferred past V1
+## Deferred
 
-Dashboard UI · dynamic window sizing · priority queues · multi-region workers · event partitioning · Kafka · Kubernetes · Prometheus/Grafana · OpenTelemetry
+Full admin dashboard (project, webhook and key management screens) · dynamic window sizing · priority queues · multi-region workers · event partitioning · Kafka · Kubernetes · Prometheus/Grafana · OpenTelemetry
+
+Note that the *admin* dashboard stays deferred even after M6. M6 builds the observability screen only — the one that shows something worth seeing.

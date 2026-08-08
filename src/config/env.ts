@@ -46,6 +46,28 @@ const envSchema = z.object({
     .min(32, "JWT_SECRET must be at least 32 characters"),
   JWT_EXPIRES_IN: z.string().min(1).default("1h"),
 
+  // ── Webhook URL policy ────────────────────────────────────────────────────
+  /**
+   * Permit webhook URLs pointing at loopback or private addresses.
+   *
+   * Needed for local development, where the delivery target is a receiver on
+   * 127.0.0.1. In production this must stay false: enabling it lets a customer
+   * aim our own workers at internal services or the cloud metadata endpoint —
+   * a Server-Side Request Forgery. See utils/url-safety.ts.
+   *
+   * A cross-field check below refuses to boot if this is true in production.
+   */
+  ALLOW_PRIVATE_WEBHOOK_URLS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+
+  /** Require webhook URLs to use HTTPS. Relaxed locally for plain-HTTP receivers. */
+  REQUIRE_HTTPS_WEBHOOKS: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+
   // ── Execution window ──────────────────────────────────────────────────────
   /**
    * The hard cap on delivery jobs resident in Redis. Postgres holds every
@@ -103,6 +125,23 @@ function loadEnv(): Env {
         `  - LEASE_TIMEOUT_MS (${env.LEASE_TIMEOUT_MS}) must be greater than ` +
         `DELIVERY_TIMEOUT_MS (${env.DELIVERY_TIMEOUT_MS}), otherwise the scheduler ` +
         `will reclaim deliveries that are still in flight.\n\n`,
+    );
+    process.exit(1);
+  }
+
+  /**
+   * Refuse to start a production server that would accept webhook URLs
+   * pointing into our own network. This is a misconfiguration serious enough
+   * to be worth failing the boot over — silently allowing it would leave an
+   * SSRF hole open with nothing in the logs to suggest anything was wrong.
+   */
+  if (env.NODE_ENV === "production" && env.ALLOW_PRIVATE_WEBHOOK_URLS) {
+    process.stderr.write(
+      `\nInvalid environment configuration:\n` +
+        `  - ALLOW_PRIVATE_WEBHOOK_URLS must be false in production. Enabling it ` +
+        `permits customers to register webhook URLs targeting internal services ` +
+        `or the cloud metadata endpoint, turning delivery workers into an SSRF ` +
+        `vector.\n\n`,
     );
     process.exit(1);
   }

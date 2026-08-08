@@ -69,15 +69,43 @@ function isPrivateIPv6(address: string): boolean {
 }
 
 /**
- * Hostnames that resolve somewhere internal regardless of DNS.
+ * Hostnames blocked unconditionally, even with `allowPrivate` on.
+ *
+ * These name cloud instance metadata services. No legitimate local
+ * development setup ever needs to reach one, so unlike loopback there is no
+ * reason to make an exception — and the consequence of reaching one is the
+ * worst case in this file.
  */
-const BLOCKED_HOSTNAMES = new Set([
-  "localhost",
-  "localhost.localdomain",
+const ALWAYS_BLOCKED_HOSTNAMES = new Set([
   "metadata",
-  "metadata.google.internal", // GCP metadata service
+  "metadata.google.internal", // GCP
   "instance-data", // AWS
+  "metadata.azure.com", // Azure
 ]);
+
+/**
+ * Hostnames that are internal but legitimately useful locally, so they are
+ * permitted when `allowPrivate` is set.
+ */
+const PRIVATE_HOSTNAMES = new Set(["localhost", "localhost.localdomain"]);
+
+/**
+ * Link-local — 169.254.0.0/16 and IPv6 fe80::/10.
+ *
+ * Blocked regardless of `allowPrivate`, because 169.254.169.254 is the
+ * instance metadata address on AWS, Azure, DigitalOcean and others. A
+ * developer needs loopback; nobody needs this.
+ */
+function isLinkLocal(hostname: string): boolean {
+  const bare = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+
+  if (isIP(bare) === 4) {
+    const [a, b] = bare.split(".").map(Number);
+    return a === 169 && b === 254;
+  }
+
+  return bare.startsWith("fe80");
+}
 
 export interface UrlCheckOptions {
   /**
@@ -136,11 +164,28 @@ export function checkWebhookUrl(
     return "Must include a hostname";
   }
 
+  /**
+   * Checked before the `allowPrivate` escape hatch, deliberately.
+   *
+   * `allowPrivate` exists so a developer can point a webhook at a receiver on
+   * 127.0.0.1. Treating it as "skip every address check" would also permit
+   * 169.254.169.254 — the cloud metadata endpoint, and the single most
+   * damaging target in this whole category. Nobody's local setup needs that,
+   * so the exception does not extend to it.
+   */
+  if (ALWAYS_BLOCKED_HOSTNAMES.has(hostname)) {
+    return "Must not point at a cloud metadata endpoint";
+  }
+
+  if (isLinkLocal(hostname)) {
+    return "Must not point at a link-local or metadata address";
+  }
+
   if (options.allowPrivate) {
     return null;
   }
 
-  if (BLOCKED_HOSTNAMES.has(hostname)) {
+  if (PRIVATE_HOSTNAMES.has(hostname)) {
     return "Must not point at a loopback or internal address";
   }
 

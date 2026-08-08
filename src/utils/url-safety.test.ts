@@ -110,4 +110,23 @@ describe("checkWebhookUrl — development policy", () => {
   it("still blocks embedded credentials even when permissive", () => {
     expect(checkWebhookUrl("http://u:p@127.0.0.1/hook", permissive)).not.toBeNull();
   });
+
+  /**
+   * The gap found by running the real server with the development policy on.
+   *
+   * `allowPrivate` was originally implemented as "skip every address check",
+   * which meant a local server happily accepted 169.254.169.254 — the cloud
+   * metadata endpoint, and the most damaging target of the whole class. A
+   * developer needs loopback; nobody needs metadata, so the exception must
+   * not extend that far.
+   */
+  it.each([
+    ["AWS/Azure/DO metadata IP", "http://169.254.169.254/latest/meta-data/"],
+    ["any link-local address", "http://169.254.1.1/hook"],
+    ["GCP metadata hostname", "http://metadata.google.internal/x"],
+    ["AWS metadata hostname", "http://instance-data/x"],
+    ["IPv6 link-local", "http://[fe80::1]/hook"],
+  ])("still blocks %s even when permissive", (_label, url) => {
+    expect(checkWebhookUrl(url, permissive)).not.toBeNull();
+  });
 });

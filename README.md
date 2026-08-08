@@ -36,7 +36,7 @@ That single property — **50,000 durable in Postgres, never more than 5,000 res
 Under construction, milestone by milestone. See [docs/milestone.md](docs/milestone.md).
 
 - [x] **M0** — Scaffold: config, logging, health probes, Prisma schema
-- [ ] **M1** — Auth & tenancy
+- [x] **M1** — Auth & tenancy: users, projects, API keys
 - [ ] **M2** — Webhooks & event ingest
 - [ ] **M3** — Execution window & scheduler
 - [ ] **M4** — Worker pool

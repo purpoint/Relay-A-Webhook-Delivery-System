@@ -475,155 +475,17 @@ Both bugs came from the same root: **a setting that's right in one context is wr
 
 # Part 10 — Milestone 1: Authentication & tenancy
 
-This milestone answers two questions: **who are you**, and **what are you allowed to touch**.
+M1 added accounts, projects, API keys and the tenancy boundary that keeps one
+customer's data away from another's.
 
-## Authentication vs authorisation
+It has its own full walkthrough, at the same depth as this one:
 
-Two words that sound alike and mean different things.
+### → **[walkthrough-m1.md](walkthrough-m1.md)**
 
-| | Question | Example |
-|---|---|---|
-| **Authentication** | Who are you? | Logging in with a password |
-| **Authorisation** | Are you allowed to do this? | Checking the project belongs to you |
-
-You need both. Being logged in doesn't entitle you to another customer's data.
-
-## Multi-tenancy
-
-Relay is **multi-tenant**: many separate customers share one running system and one database. Your projects and mine sit in the same tables, distinguished only by a `userId` column.
-
-That's efficient, and it's also the biggest risk in the whole application. A missing `WHERE userId = ...` doesn't crash anything or throw an error. It quietly serves my data to you, and nobody notices until it's a headline.
-
-## The four layers
-
-Every feature from here follows this chain, and each layer only talks to the one below it:
-
-```
-Route       →  "POST /api/v1/projects exists, and needs a valid token"
-Controller  →  read the request, call a service, send the response
-Service     →  the actual rules ("does this user own this project?")
-Repository  →  the only code allowed to touch the database
-```
-
-Why bother? Because in M3 and M4 the **scheduler and workers will call the same services** — and they have no HTTP request at all. If the ownership rules lived in the route handler, none of it could be reused. Splitting the layers is what makes the same logic work in a web request and a background loop.
-
-## Two kinds of credential
-
-| | JWT | API key |
-|---|---|---|
-| Held by | A person, in a browser | A machine, in server config |
-| Lives for | 1 hour | Years |
-| Can do | Everything — projects, webhooks, keys | Publish events. Nothing else. |
-
-This split is **containment**. An API key sits in a customer's config file for years; it's far more likely to leak than a token that expires before lunch. So if a key does leak, the damage is capped: the attacker can send junk events, but cannot read your delivery history, create projects, or mint more keys.
-
-### What is a JWT?
-
-A **JSON Web Token** is a small blob of data with a cryptographic signature attached. When you log in, we build `{ sub: "your-user-id", email: "..." }`, sign it with a secret only the server knows, and hand it to you. You send it back on every request; we verify the signature.
-
-The point is that the server stores **nothing**. It doesn't need to look up your session — the signature alone proves the token is genuine and unmodified. That's what makes the API **stateless**, and stateless is what lets you run twenty API servers behind a load balancer without them needing to share session storage.
-
-> **Important:** a JWT is *signed*, not *encrypted*. Anyone holding it can read what's inside. Never put secrets in one. The signature stops tampering, not reading.
-
-## The most interesting decision: two different hashing algorithms
-
-Passwords and API keys are both secrets, but they're hashed completely differently, and the reasoning is genuinely worth understanding.
-
-### Passwords → Argon2 (deliberately slow)
-
-Humans pick terrible passwords. `hunter2` is one guess out of maybe a few million — not out of 2^256. You cannot make a human password unguessable, so the only defence left is making **each individual guess expensive**.
-
-Argon2 deliberately burns CPU and memory. It takes ~50ms and 19MB of RAM to compute one hash. That's imperceptible when you log in once. For an attacker trying a billion passwords, it's ruinous.
-
-**Slow is the entire feature.**
-
-### API keys → SHA-256 (deliberately fast)
-
-An API key is 32 bytes we generate from cryptographic randomness — 256 bits of entropy. There is *nothing to guess*. Nobody brute-forces 2^256; the universe isn't old enough.
-
-So slow hashing buys **zero** extra security here — and costs a great deal. That check runs on every single published event, the hottest path in the entire system.
-
-There's a second, structural reason. Argon2 salts every hash randomly, so hashing the same key twice gives different results. **You cannot look a key up by its hash.** You'd have to load every key in the database and verify them one at a time. SHA-256 is deterministic, so the hash drops straight into a unique index and the lookup is one indexed query.
-
-> **The lesson:** "always use the strongest hash" is wrong. The right algorithm depends on where the security actually comes from. For passwords it comes from slowness; for API keys it comes from entropy.
-
-## Three security details worth knowing
-
-### 1. Account enumeration and the dummy hash
-
-If you try to log in with an email that doesn't exist, the obvious code returns immediately. If the email *does* exist, we spend ~50ms running Argon2 before rejecting the wrong password.
-
-That timing difference is measurable over a network. An attacker scripts it and learns **which email addresses have accounts here** — valuable for phishing, and a privacy breach in itself.
-
-The fix: when the email is unknown, we verify the password against a **dummy hash** anyway. Same work, same delay, no signal. Both cases also return the byte-identical message, "Invalid email or password".
-
-### 2. 404, not 403
-
-When you request a project belonging to somebody else, Relay returns **404 Not Found** — not 403 Forbidden.
-
-`403` means "this exists, but you can't have it." That confirms the resource is real, which is itself a leak. Someone probing IDs could map out which projects exist. `404` tells them nothing.
-
-### 3. The key is shown exactly once
-
-When you create an API key, the plaintext appears in that one response and never again. We store only the SHA-256 hash, so we genuinely **cannot** show it to you later — even if we wanted to.
-
-Lose it and you issue a new one. That's not a limitation; it's the property that makes a database leak survivable.
-
-## What got built
-
-| File | Does what |
-|---|---|
-| `utils/crypto.ts` | Password hashing, API key generation, constant-time comparison |
-| `repositories/*.repository.ts` | The only database access — users, projects, keys |
-| `services/auth.service.ts` | Register and login, including the timing defence |
-| `services/project.service.ts` | Projects and keys, with the ownership check |
-| `middleware/authenticate.ts` | `requireUser` (JWT) and `requireApiKey` |
-| `validators/*.schema.ts` | Zod rules for every input |
-| `routes/v1/*.routes.ts` | The endpoints themselves |
-| `types/fastify.d.ts` | Teaches TypeScript what an authenticated request carries |
-
-### The endpoints
-
-| Method | Path | Auth |
-|---|---|---|
-| `POST` | `/api/v1/auth/register` | none |
-| `POST` | `/api/v1/auth/login` | none |
-| `POST` | `/api/v1/projects` | JWT |
-| `GET` | `/api/v1/projects` | JWT |
-| `GET` | `/api/v1/projects/:projectId` | JWT |
-| `POST` | `/api/v1/projects/:projectId/api-keys` | JWT |
-| `GET` | `/api/v1/projects/:projectId/api-keys` | JWT |
-| `DELETE` | `/api/v1/projects/:projectId/api-keys/:keyId` | JWT |
-
-### One password rule that might surprise you
-
-The only requirement is **12 characters**. No "must contain a capital and a symbol."
-
-Those composition rules are counterproductive. They push people toward predictable patterns — `Password1!` satisfies every box and is trivially cracked — while blocking genuinely strong passphrases like `correct horse battery staple`. Both NIST and OWASP now recommend length minimums instead. We follow that.
-
-## A discovery while testing
-
-Six tests failed on the first run, and the cause turned out to be a good sign: **the rate limiter was working.** Auth endpoints are capped at 10 requests/minute, the test suite blew straight through that, and later registrations got `429 Too Many Requests`.
-
-Real protection doing its job — but it made test results depend on the order they happened to run in, which is unacceptable in a test suite.
-
-The fix wasn't to weaken the limit. Rate limiting is now **off by default in tests only**, and a dedicated test builds an app with it explicitly switched on. The protection stays covered rather than quietly disabled.
-
-Why is the auth limit so much tighter than the general one (10/min vs 100/min)? Two reasons. Login is the target for **credential stuffing** — replaying millions of email/password pairs leaked from other breaches. And because every attempt costs us an Argon2 hash, an unthrottled login endpoint is also a way for an attacker to **exhaust our own CPU**.
-
-## Verified
-
-24 tests pass, including:
-
-- The password hash never appears in any response
-- Unknown email and wrong password return identical responses
-- Listing projects shows only your own
-- Another user's project returns 404
-- You cannot mint a key inside someone else's project
-- The plaintext key appears once and never again
-- What's stored is a 64-character hash, not the key
-
-Plus a manual run of the whole flow — register → create project → mint key → list keys → rejected without a token — all behaving correctly.
+It covers authentication versus authorisation, why passwords and API keys are
+hashed with *different* algorithms on purpose, how JWTs work and what they
+cannot do, timing attacks and account enumeration, and why another user's
+project returns 404 rather than 403.
 
 ---
 

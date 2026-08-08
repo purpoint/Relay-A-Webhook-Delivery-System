@@ -80,6 +80,15 @@ Brings up Postgres, Redis, migrations, the API, a scheduler and two workers. Add
 
 ## Documentation
 
+**Learning the codebase?** Start with the walkthroughs — they assume no prior knowledge and explain the reasoning, not just the code.
+
+| | |
+|---|---|
+| [Walkthrough](docs/walkthrough.md) | The project from first principles, plus M0 |
+| [Walkthrough — M1](docs/walkthrough-m1.md) | Authentication, hashing, JWTs, tenancy |
+
+Reference:
+
 | | |
 |---|---|
 | [Overview](docs/Overview.md) | Vision and the problem being solved |

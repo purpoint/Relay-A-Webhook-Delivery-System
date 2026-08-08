@@ -1,13 +1,28 @@
 import Fastify from "fastify";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
+import jwt from "@fastify/jwt";
 import { randomUUID } from "node:crypto";
 
-import { env, isProduction } from "./config/env.js";
+import { env, isProduction, isTest } from "./config/env.js";
 import { logger } from "./utils/logger.js";
 import { registerErrorHandler } from "./middleware/error-handler.js";
 import { healthRoutes } from "./routes/health.js";
+import { v1Routes } from "./routes/v1/index.js";
 import type { AppInstance } from "./types/app.js";
+
+export interface BuildAppOptions {
+  /**
+   * Whether to enforce rate limiting.
+   *
+   * Defaults to on everywhere except tests. A test suite drives dozens of
+   * requests from one address in a few seconds, which trips the limiter and
+   * makes results depend on the order tests happen to run in. Turning it off
+   * by default keeps suites deterministic; the tests that specifically cover
+   * rate limiting pass `true` to switch it back on.
+   */
+  rateLimit?: boolean;
+}
 
 /**
  * Builds the Fastify instance without starting it.
@@ -15,7 +30,8 @@ import type { AppInstance } from "./types/app.js";
  * Kept separate from server.ts so tests can build an app, drive it through
  * `app.inject()`, and never bind a port.
  */
-export async function buildApp(): Promise<AppInstance> {
+export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstance> {
+  const rateLimitEnabled = options.rateLimit ?? !isTest;
   const app = Fastify({
     loggerInstance: logger,
 
@@ -39,16 +55,22 @@ export async function buildApp(): Promise<AppInstance> {
     contentSecurityPolicy: false,
   });
 
-  await app.register(rateLimit, {
-    max: 100,
-    timeWindow: "1 minute",
-    // Per-project once an API key is presented, per-IP otherwise. Rate
-    // limiting purely by IP would let one customer behind a NAT exhaust the
-    // budget for everyone sharing it.
-    keyGenerator: (request) => {
-      const apiKey = request.headers["x-api-key"];
-      return typeof apiKey === "string" ? `key:${apiKey}` : `ip:${request.ip}`;
-    },
+  if (rateLimitEnabled) {
+    await app.register(rateLimit, {
+      max: 100,
+      timeWindow: "1 minute",
+      // Per-project once an API key is presented, per-IP otherwise. Rate
+      // limiting purely by IP would let one customer behind a NAT exhaust the
+      // budget for everyone sharing it.
+      keyGenerator: (request) => {
+        const apiKey = request.headers["x-api-key"];
+        return typeof apiKey === "string" ? `key:${apiKey}` : `ip:${request.ip}`;
+      },
+    });
+  }
+
+  await app.register(jwt, {
+    secret: env.JWT_SECRET,
   });
 
   registerErrorHandler(app);
@@ -56,6 +78,8 @@ export async function buildApp(): Promise<AppInstance> {
   // Health probes sit outside the version prefix — orchestrators shouldn't
   // have to track the API version to know whether the process is alive.
   await app.register(healthRoutes);
+
+  await app.register(v1Routes, { prefix: "/api/v1" });
 
   app.log.info(
     { executionWindowSize: env.EXECUTION_WINDOW_SIZE },

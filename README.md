@@ -41,6 +41,8 @@ Under construction, milestone by milestone. See [docs/milestone.md](docs/milesto
 - [ ] **M3** — Execution window & scheduler
 - [ ] **M4** — Worker pool
 - [ ] **M5** — Observability & hardening
+- [ ] **M6** — Live execution-window monitor (single screen)
+- [ ] **M7** — Deploy, with a public URL
 
 ## Running locally
 

@@ -18,20 +18,44 @@ async function main(): Promise<void> {
   // teardown sequence twice.
   let shuttingDown = false;
 
+  /**
+   * Hard ceiling on graceful shutdown.
+   *
+   * Every step below can in principle block on an unresponsive dependency. If
+   * that happens the process must still die on its own, because an orchestrator
+   * that gets no response to SIGTERM escalates to SIGKILL — and being killed
+   * mid-write is exactly what a graceful shutdown exists to avoid.
+   */
+  const SHUTDOWN_TIMEOUT_MS = 10_000;
+
   async function shutdown(signal: string): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
 
     logger.info({ signal }, "Shutting down");
 
+    const watchdog = setTimeout(() => {
+      logger.error(
+        { timeoutMs: SHUTDOWN_TIMEOUT_MS },
+        "Graceful shutdown timed out, forcing exit",
+      );
+      process.exit(1);
+    }, SHUTDOWN_TIMEOUT_MS);
+
+    // Don't let the watchdog itself keep the event loop alive once the real
+    // work has finished early.
+    watchdog.unref();
+
     // Order matters: stop accepting requests before closing the connections
     // that in-flight requests are still using.
     try {
       await app.close();
       await Promise.allSettled([disconnectDatabase(), disconnectRedis()]);
+      clearTimeout(watchdog);
       logger.info("Shutdown complete");
       process.exit(0);
     } catch (error) {
+      clearTimeout(watchdog);
       logger.error({ err: error }, "Error during shutdown");
       process.exit(1);
     }

@@ -57,18 +57,71 @@ export function createBlockingClient(label: string): Redis {
   return buildClient(label);
 }
 
-/** Cheap round-trip used by the readiness probe. */
+/**
+ * How long the readiness probe waits for Redis before calling it unavailable.
+ */
+const HEALTH_CHECK_TIMEOUT_MS = 2000;
+
+/**
+ * Cheap round-trip used by the readiness probe.
+ *
+ * The timeout is essential rather than defensive. `maxRetriesPerRequest: null`
+ * is right for the scheduler and workers — they should ride out a Redis blip
+ * rather than crash — but it means a command issued while Redis is down waits
+ * forever instead of rejecting. Without a bound here, /readyz would hang open
+ * rather than answer, and a probe that never responds is no more useful than
+ * one that lies.
+ */
 export async function checkRedisConnection(): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+
   try {
-    const pong = await redis.ping();
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`Redis ping timed out after ${HEALTH_CHECK_TIMEOUT_MS}ms`)),
+        HEALTH_CHECK_TIMEOUT_MS,
+      );
+    });
+
+    const ping = redis.ping();
+
+    // Once the timeout wins the race, nothing is left awaiting this promise.
+    // Attach a no-op catch so its eventual rejection isn't reported as an
+    // unhandled rejection — which the server treats as fatal.
+    ping.catch(() => undefined);
+
+    const pong = await Promise.race([ping, timeout]);
     return pong === "PONG";
   } catch (error) {
     redisLogger.error({ err: error }, "Redis health check failed");
     return false;
+  } finally {
+    // Leaving this pending would hold the event loop open and delay shutdown.
+    if (timer) clearTimeout(timer);
   }
 }
 
+/** Grace period for a clean QUIT before the socket is torn down regardless. */
+const QUIT_TIMEOUT_MS = 2000;
+
 export async function disconnectRedis(): Promise<void> {
-  await redis.quit();
+  try {
+    /**
+     * QUIT drains in-flight commands before closing, which is what we want on
+     * a healthy connection. But if Redis is already unreachable that drain can
+     * never complete and — because retries are unbounded — QUIT neither
+     * resolves nor rejects. Waiting on it would hang shutdown until the
+     * orchestrator lost patience and sent SIGKILL, so bound it and tear the
+     * socket down by force if it doesn't finish.
+     */
+    await Promise.race([
+      redis.quit(),
+      new Promise((resolve) => setTimeout(resolve, QUIT_TIMEOUT_MS).unref()),
+    ]);
+  } catch {
+    // QUIT failing is expected when Redis is already gone.
+  } finally {
+    redis.disconnect();
+  }
   redisLogger.info("Redis connection closed");
 }

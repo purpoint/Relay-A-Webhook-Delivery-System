@@ -1,0 +1,110 @@
+# Relay's three processes plus their datastores.
+#
+# The split into separate api / scheduler / worker services is the whole point:
+# each scales independently, and the worker is the one you add replicas of when
+# a backlog builds. They share an image and differ only in command.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: relay
+      POSTGRES_DB: relay
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Dependants wait on this rather than on the container merely existing —
+      # Postgres accepts connections some seconds after the process starts.
+      test: ["CMD-SHELL", "pg_isready -U relay -d relay"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    # No volume, deliberately. Redis holds only the execution window; every job
+    # in it also exists in Postgres, so losing the container loses nothing the
+    # scheduler cannot rebuild. Persisting it would imply a durability role
+    # Redis is explicitly not meant to have here.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build: .
+    command: npx prisma migrate deploy
+    environment:
+      DATABASE_URL: postgresql://relay:relay@postgres:5432/relay?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    command: node dist/server.js
+    environment: &app-env
+      NODE_ENV: production
+      LOG_LEVEL: info
+      PORT: 3000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://relay:relay@postgres:5432/relay?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      EXECUTION_WINDOW_SIZE: 5000
+      SCHEDULER_POLL_MS: 2000
+      WORKER_CONCURRENCY: 10
+      MAX_ATTEMPTS: 8
+      DELIVERY_TIMEOUT_MS: 10000
+      LEASE_TIMEOUT_MS: 60000
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  scheduler:
+    build: .
+    command: node dist/scheduler/main.js
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Exactly one scheduler is not required — FOR UPDATE SKIP LOCKED makes
+    # replicas safe — but one is sufficient to keep the window full.
+    deploy:
+      replicas: 1
+
+  worker:
+    build: .
+    command: node dist/workers/main.js
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # The horizontally scalable tier. `docker compose up --scale worker=5` when
+    # a backlog needs draining.
+    deploy:
+      replicas: 2
+
+volumes:
+  postgres-data:

@@ -2,7 +2,7 @@
 
 A plain-English record of what this project is, why it's built the way it is, and what exists so far. No prior knowledge assumed. Every piece of jargon is explained the first time it appears.
 
-Updated through **M1 (Authentication & tenancy)**.
+Updated through **M2 (Webhooks & event ingest)**.
 
 ---
 
@@ -489,7 +489,22 @@ project returns 404 rather than 403.
 
 ---
 
-# Part 11 — Where the project stands
+# Part 11 — Milestone 2: Webhooks & event ingest
+
+M2 added webhook registration, the event ingest endpoint, transactional
+fan-out, and idempotency — plus the SSRF guard that stops a customer aiming
+our own workers at internal services.
+
+### → **[walkthrough-m2.md](walkthrough-m2.md)**
+
+It covers why a webhook URL is the most dangerous input in the system, the
+transaction that prevents silent data loss, why idempotency needs a database
+constraint rather than a check, and a security bug I introduced and caught by
+running the server rather than trusting the tests.
+
+---
+
+# Part 12 — Where the project stands
 
 ## Verified working
 
@@ -497,7 +512,7 @@ project returns 404 rather than 403.
 |---|---|
 | `npm run typecheck` | Clean |
 | `npm run lint` | Clean |
-| `npm test` | 24 passing |
+| `npm test` | 96 passing |
 | `GET /health` | `200` |
 | `GET /readyz` | `503` in 2.0s, correctly reporting `database: true, redis: false` |
 | Shutdown on signal | Exits in 2s |
@@ -516,8 +531,8 @@ The `503` is the **correct** answer — Redis genuinely isn't installed yet. The
 |---|---|---|
 | **M0** | Scaffold — config, logging, health, database schema | **Done** |
 | **M1** | Auth & tenancy — users, projects, API keys | **Done** |
-| M2 | Webhooks & event ingest — the write path | Next |
-| M3 | Execution window & scheduler — *the core idea* |  |
+| **M2** | Webhooks & event ingest — the write path | **Done** |
+| M3 | Execution window & scheduler — *the core idea* | Next |
 | M4 | Worker pool — the delivery engine |  |
 | M5 | Observability & hardening — plus the proof |  |
 

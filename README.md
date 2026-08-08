@@ -37,7 +37,7 @@ Under construction, milestone by milestone. See [docs/milestone.md](docs/milesto
 
 - [x] **M0** — Scaffold: config, logging, health probes, Prisma schema
 - [x] **M1** — Auth & tenancy: users, projects, API keys
-- [ ] **M2** — Webhooks & event ingest
+- [x] **M2** — Webhooks & event ingest: fan-out, idempotency, SSRF guard
 - [ ] **M3** — Execution window & scheduler
 - [ ] **M4** — Worker pool
 - [ ] **M5** — Observability & hardening
@@ -88,6 +88,7 @@ Brings up Postgres, Redis, migrations, the API, a scheduler and two workers. Add
 |---|---|
 | [Walkthrough](docs/walkthrough.md) | The project from first principles, plus M0 |
 | [Walkthrough — M1](docs/walkthrough-m1.md) | Authentication, hashing, JWTs, tenancy |
+| [Walkthrough — M2](docs/walkthrough-m2.md) | SSRF, fan-out transactions, idempotency |
 
 Reference:
 
@@ -96,7 +97,7 @@ Reference:
 | [Overview](docs/Overview.md) | Vision and the problem being solved |
 | [Architecture](docs/Architecture.md) | Components and data flow |
 | [Tech stack & design](docs/Documentation_techstack_desgin.md) | Stack, principles, event lifecycle |
-| [Milestones](docs/milestone.md) | Build plan, M0 through M5 |
+| [Milestones](docs/milestone.md) | Build plan, M0 through M7 |
 
 ## Licence
 

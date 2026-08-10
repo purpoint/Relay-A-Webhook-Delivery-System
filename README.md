@@ -39,7 +39,7 @@ Under construction, milestone by milestone. See [docs/milestone.md](docs/milesto
 - [x] **M1** — Auth & tenancy: users, projects, API keys
 - [x] **M2** — Webhooks & event ingest: fan-out, idempotency, SSRF guard
 - [x] **M3** — Execution window & scheduler: bounded Redis, Lua atomicity, SKIP LOCKED
-- [ ] **M4** — Worker pool
+- [x] **M4** — Worker pool: HMAC signing, jittered backoff, lease recovery
 - [ ] **M5** — Observability & hardening
 - [ ] **M6** — Live execution-window monitor (single screen)
 - [ ] **M7** — Deploy, with a public URL
@@ -90,6 +90,7 @@ Brings up Postgres, Redis, migrations, the API, a scheduler and two workers. Add
 | [Walkthrough — M1](docs/walkthrough-m1.md) | Authentication, hashing, JWTs, tenancy |
 | [Walkthrough — M2](docs/walkthrough-m2.md) | SSRF, fan-out transactions, idempotency |
 | [Walkthrough — M3](docs/walkthrough-m3.md) | The bounded window, Lua atomicity, SKIP LOCKED |
+| [Walkthrough — M4](docs/walkthrough-m4.md) | HMAC signing, thundering herds, claiming without locks |
 
 Reference:
 

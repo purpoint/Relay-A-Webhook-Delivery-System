@@ -2,7 +2,7 @@
 
 A plain-English record of what this project is, why it's built the way it is, and what exists so far. No prior knowledge assumed. Every piece of jargon is explained the first time it appears.
 
-Updated through **M3 (The execution window)**.
+Updated through **M4 (The worker pool)**.
 
 ---
 
@@ -521,7 +521,26 @@ Verified: 6,000 deliveries in Postgres, Redis pinned at exactly 5,000.
 
 ---
 
-# Part 13 — Where the project stands
+# Part 13 — Milestone 4: The worker pool
+
+The milestone where Relay finally sends a webhook. HMAC signing, exponential
+backoff with full jitter, claiming without locks, and lease-based recovery
+from dead workers.
+
+### → **[walkthrough-m4.md](walkthrough-m4.md)**
+
+It covers why the timestamp is signed together with the body, the thundering
+herd that jitter exists to break, how a conditional UPDATE prevents two
+workers sending the same webhook without any lock, and a bug that only
+appeared with all three processes running at once — where two perfectly
+correct components interleaved and silently stranded 1,216 deliveries.
+
+Verified end to end: 6,000 deliveries fail against a dead endpoint and leave
+Redis entirely, then drain completely within five seconds of it recovering.
+
+---
+
+# Part 14 — Where the project stands
 
 ## Verified working
 
@@ -529,7 +548,7 @@ Verified: 6,000 deliveries in Postgres, Redis pinned at exactly 5,000.
 |---|---|
 | `npm run typecheck` | Clean |
 | `npm run lint` | Clean |
-| `npm test` | 137 passing |
+| `npm test` | 216 passing |
 | `GET /health` | `200` |
 | `GET /readyz` | `503` in 2.0s, correctly reporting `database: true, redis: false` |
 | Shutdown on signal | Exits in 2s |
@@ -550,8 +569,8 @@ The `503` is the **correct** answer — Redis genuinely isn't installed yet. The
 | **M1** | Auth & tenancy — users, projects, API keys | **Done** |
 | **M2** | Webhooks & event ingest — the write path | **Done** |
 | **M3** | Execution window & scheduler — *the core idea* | **Done** |
-| M4 | Worker pool — the delivery engine | Next |
-| M5 | Observability & hardening — plus the proof |  |
+| **M4** | Worker pool — the delivery engine | **Done** |
+| M5 | Observability & hardening — plus the proof | Next |
 
 ## What "done" will look like
 

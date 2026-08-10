@@ -25,7 +25,9 @@
     "db:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "receiver": "node scripts/receiver.mjs",
+    "load-test": "node scripts/load-test.mjs"
   },
   "keywords": [
     "webhooks",

@@ -31,6 +31,28 @@ A failed delivery is **removed** from Redis and marked `WAITING` in Postgres wit
 
 That single property — **50,000 durable in Postgres, never more than 5,000 resident in Redis** — is what the project exists to demonstrate.
 
+## The proof
+
+`npm run load-test` publishes 50,000 events at an endpoint returning `500`, then samples both datastores. A real run:
+
+```
+elapsed |  postgres | redis (ready+flight) | PENDING  WAITING  DELIVERED
+0s      |     50000 |  2949 ( 2924+ 25)    |    1076    46070          0
+24s     |     50000 |     0 (    0+  0)    |       0    50000          0   ← 50k pending, Redis empty
+40s     |     50000 |   737 (  718+ 19)    |       0    49316          0
+
+Peak Redis occupancy: 3,035 of 5,000
+```
+
+Then flip the endpoint healthy — nothing restarted:
+
+```
+final: delivered=50000 failed=0
+redis: window=0 inflight=0 dedupe=0
+```
+
+The receiver logged **192,808 rejected attempts** during the outage. Every one was tracked, backed off and rescheduled through Postgres while Redis never exceeded 3,035.
+
 ## Status
 
 Under construction, milestone by milestone. See [docs/milestone.md](docs/milestone.md).
@@ -40,7 +62,7 @@ Under construction, milestone by milestone. See [docs/milestone.md](docs/milesto
 - [x] **M2** — Webhooks & event ingest: fan-out, idempotency, SSRF guard
 - [x] **M3** — Execution window & scheduler: bounded Redis, Lua atomicity, SKIP LOCKED
 - [x] **M4** — Worker pool: HMAC signing, jittered backoff, lease recovery
-- [ ] **M5** — Observability & hardening
+- [x] **M5** — Observability & hardening: delivery history, replay, Swagger, load test
 - [ ] **M6** — Live execution-window monitor (single screen)
 - [ ] **M7** — Deploy, with a public URL
 
@@ -91,6 +113,7 @@ Brings up Postgres, Redis, migrations, the API, a scheduler and two workers. Add
 | [Walkthrough — M2](docs/walkthrough-m2.md) | SSRF, fan-out transactions, idempotency |
 | [Walkthrough — M3](docs/walkthrough-m3.md) | The bounded window, Lua atomicity, SKIP LOCKED |
 | [Walkthrough — M4](docs/walkthrough-m4.md) | HMAC signing, thundering herds, claiming without locks |
+| [Walkthrough — M5](docs/walkthrough-m5.md) | Delivery history, keyset pagination, and the proof |
 
 Reference:
 

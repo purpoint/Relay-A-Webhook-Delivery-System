@@ -2,7 +2,7 @@
 
 A plain-English record of what this project is, why it's built the way it is, and what exists so far. No prior knowledge assumed. Every piece of jargon is explained the first time it appears.
 
-Updated through **M4 (The worker pool)**.
+Updated through **M5 (Observability and the proof)**.
 
 ---
 
@@ -540,7 +540,21 @@ Redis entirely, then drain completely within five seconds of it recovering.
 
 ---
 
-# Part 14 — Where the project stands
+# Part 14 — Milestone 5: Observability and the proof
+
+Delivery history, replay, Swagger, and the load test that demonstrates the
+claim the project was built to make.
+
+### → **[walkthrough-m5.md](walkthrough-m5.md)**
+
+It covers why OFFSET pagination is a trap on a table that never stops growing,
+why replay resets a row rather than sending anything itself, and the full
+50,000-event run: Redis peaked at 3,035 of 5,000, and at the low point held
+nothing at all while 50,000 deliveries waited in Postgres.
+
+---
+
+# Part 15 — Where the project stands
 
 ## Verified working
 
@@ -548,7 +562,7 @@ Redis entirely, then drain completely within five seconds of it recovering.
 |---|---|
 | `npm run typecheck` | Clean |
 | `npm run lint` | Clean |
-| `npm test` | 216 passing |
+| `npm test` | 232 passing |
 | `GET /health` | `200` |
 | `GET /readyz` | `503` in 2.0s, correctly reporting `database: true, redis: false` |
 | Shutdown on signal | Exits in 2s |
@@ -570,7 +584,7 @@ The `503` is the **correct** answer — Redis genuinely isn't installed yet. The
 | **M2** | Webhooks & event ingest — the write path | **Done** |
 | **M3** | Execution window & scheduler — *the core idea* | **Done** |
 | **M4** | Worker pool — the delivery engine | **Done** |
-| M5 | Observability & hardening — plus the proof | Next |
+| **M5** | Observability & hardening — plus the proof | **Done** |
 
 ## What "done" will look like
 

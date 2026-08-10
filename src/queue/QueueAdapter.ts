@@ -28,8 +28,13 @@ export interface QueueAdapter {
    * Blocks up to `timeoutSeconds` waiting for work, then resolves null. The
    * move is atomic: a job is never in neither list, so a worker crashing
    * between "take" and "start" cannot lose it.
+   *
+   * `connection` lets a caller supply its own client. A blocking command
+   * occupies its connection for the whole wait, so concurrent workers sharing
+   * one would queue behind each other and the pool's concurrency would be a
+   * fiction — every worker but one merely waiting for the connection.
    */
-  claim(timeoutSeconds: number): Promise<string | null>;
+  claim(timeoutSeconds: number, connection?: unknown): Promise<string | null>;
 
   /**
    * Release a job from the window once its outcome is decided — delivered,

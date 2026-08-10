@@ -73,9 +73,17 @@ export class RedisWindowQueue implements QueueAdapter {
    *
    * LEFT/RIGHT gives FIFO: the scheduler appends on the right, workers take
    * from the left, so the oldest eligible delivery goes first.
+   *
+   * `connection` should be a client dedicated to this caller. BLMOVE holds its
+   * connection for the entire timeout, so ten workers sharing one client would
+   * not wait in parallel — they would queue, and the pool's concurrency would
+   * collapse to one. Defaults to the shared client, which is fine for tests
+   * and single-consumer use.
    */
-  async claim(timeoutSeconds: number): Promise<string | null> {
-    const id = await this.redis.blmove(
+  async claim(timeoutSeconds: number, connection?: Redis): Promise<string | null> {
+    const client = connection ?? this.redis;
+
+    const id = await client.blmove(
       this.readyKey,
       this.inFlightKey,
       "LEFT",

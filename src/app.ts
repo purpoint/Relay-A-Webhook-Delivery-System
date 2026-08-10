@@ -9,6 +9,7 @@ import { logger } from "./utils/logger.js";
 import { registerErrorHandler } from "./middleware/error-handler.js";
 import { healthRoutes } from "./routes/health.js";
 import { v1Routes } from "./routes/v1/index.js";
+import { registerSwagger } from "./config/swagger.js";
 import type { AppInstance } from "./types/app.js";
 
 export interface BuildAppOptions {
@@ -22,6 +23,9 @@ export interface BuildAppOptions {
    * rate limiting pass `true` to switch it back on.
    */
   rateLimit?: boolean;
+
+  /** Serve interactive docs at /docs. Off in tests, where nothing reads them. */
+  swagger?: boolean;
 }
 
 /**
@@ -74,6 +78,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   await app.register(jwt, {
     secret: env.JWT_SECRET,
   });
+
+  // Registered before the routes so it can collect their schemas. Skipped in
+  // tests, where nothing reads it and it only slows startup.
+  if (options.swagger ?? !isTest) {
+    await registerSwagger(app);
+  }
 
   registerErrorHandler(app);
 

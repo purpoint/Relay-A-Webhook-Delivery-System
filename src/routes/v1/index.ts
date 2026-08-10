@@ -3,6 +3,7 @@ import { authRoutes } from "./auth.routes.js";
 import { projectRoutes } from "./project.routes.js";
 import { webhookRoutes } from "./webhook.routes.js";
 import { eventRoutes } from "./event.routes.js";
+import { eventQueryRoutes } from "./event-query.routes.js";
 
 /**
  * Everything under /api/v1.
@@ -21,4 +22,5 @@ export async function v1Routes(app: AppInstance): Promise<void> {
   await app.register(projectRoutes);
   await app.register(webhookRoutes);
   await app.register(eventRoutes);
+  await app.register(eventQueryRoutes);
 }

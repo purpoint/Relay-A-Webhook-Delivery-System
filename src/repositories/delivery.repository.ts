@@ -61,7 +61,31 @@ export async function claimEligibleDeliveries(
    */
   const now = new Date();
 
-  return prisma.$transaction(async (tx) => {
+  /**
+   * Step one: claim and mark QUEUED, then commit.
+   *
+   * Nothing is published to Redis inside this transaction, and that ordering
+   * was arrived at the hard way. Publishing first looks appealing — a failed
+   * push simply rolls the claim back — but it loses a race that turns out to
+   * happen constantly under load:
+   *
+   *   scheduler  pushes ID to Redis (transaction still open)
+   *   worker     claims the ID, runs UPDATE ... WHERE status = 'QUEUED'
+   *   worker     sees PENDING in its snapshot, so matches zero rows. It does
+   *              not even block, because a row failing the WHERE clause is
+   *              never a candidate for the row lock.
+   *   worker     treats it as an orphan, skips it, releases the Redis slot
+   *   scheduler  commits, marking the row QUEUED
+   *
+   * The delivery is now QUEUED in Postgres and absent from Redis: invisible to
+   * the scheduler, which only looks at PENDING and WAITING, and to the
+   * workers, which only see Redis. It would sit there forever. A live run
+   * accumulated 1,216 such rows in twenty seconds.
+   *
+   * Committing first means a worker cannot encounter an ID before the row is
+   * durably QUEUED.
+   */
+  const claimedIds = await prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<IdRow[]>`
       SELECT id
       FROM deliveries
@@ -74,17 +98,47 @@ export async function claimEligibleDeliveries(
 
     if (rows.length === 0) return [];
 
-    const accepted = await offerToWindow(rows.map((row) => row.id));
+    const ids = rows.map((row) => row.id);
 
-    if (accepted.length > 0) {
-      await tx.delivery.updateMany({
-        where: { id: { in: accepted } },
-        data: { status: "QUEUED" },
-      });
-    }
+    await tx.delivery.updateMany({
+      where: { id: { in: ids } },
+      data: { status: "QUEUED" },
+    });
 
-    return accepted;
+    return ids;
   });
+
+  if (claimedIds.length === 0) return [];
+
+  /**
+   * Step two: publish.
+   *
+   * The window is the only thing that can decline, and whatever it declines is
+   * returned to PENDING so a later tick retries it.
+   *
+   * This does introduce one narrow failure of its own: if the process dies
+   * between the commit and the push, those rows are QUEUED with nothing in
+   * Redis — the same orphan state, now rare rather than routine. The
+   * scheduler's orphan sweep exists to recover exactly that case, and is not
+   * optional given this ordering.
+   */
+  let accepted: string[];
+
+  try {
+    accepted = await offerToWindow(claimedIds);
+  } catch (error) {
+    // Redis unreachable. Undo the claim so the next tick can try again.
+    await resetToPending(claimedIds);
+    throw error;
+  }
+
+  if (accepted.length < claimedIds.length) {
+    const acceptedSet = new Set(accepted);
+    const rejected = claimedIds.filter((id) => !acceptedSet.has(id));
+    await resetToPending(rejected);
+  }
+
+  return accepted;
 }
 
 /**

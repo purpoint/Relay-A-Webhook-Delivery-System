@@ -125,6 +125,25 @@ export class RedisWindowQueue implements QueueAdapter {
     return count;
   }
 
+  /**
+   * Of the given IDs, which the window does not hold.
+   *
+   * Used by the scheduler's orphan sweep. Membership is answered by the dedupe
+   * set, which is exactly the set of IDs resident in the window — checking the
+   * two lists instead would mean reading thousands of elements to answer a
+   * membership question.
+   *
+   * SMISMEMBER tests the whole batch in one round trip, so a sweep over a
+   * thousand candidates is one command rather than a thousand.
+   */
+  async notInWindow(deliveryIds: string[]): Promise<string[]> {
+    if (deliveryIds.length === 0) return [];
+
+    const present = await this.redis.smismember(this.dedupeKey, ...deliveryIds);
+
+    return deliveryIds.filter((_id, index) => present[index] === 0);
+  }
+
   async occupancy(): Promise<number> {
     const [ready, inFlight] = await Promise.all([
       this.redis.llen(this.readyKey),

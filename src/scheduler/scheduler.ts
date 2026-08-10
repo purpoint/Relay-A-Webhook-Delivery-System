@@ -2,7 +2,9 @@ import type { RedisWindowQueue } from "../queue/RedisWindowQueue.js";
 import {
   claimEligibleDeliveries,
   countByStatus,
+  findOrphanedQueued,
   reclaimExpiredLeases,
+  resetToPending,
 } from "../repositories/delivery.repository.js";
 import { componentLogger } from "../utils/logger.js";
 
@@ -21,10 +23,22 @@ export interface SchedulerOptions {
 
 export interface TickResult {
   reclaimed: number;
+  /** QUEUED rows found absent from the window and returned to PENDING. */
+  orphansRecovered: number;
   enqueued: number;
   occupancy: number;
   capacityAvailable: number;
 }
+
+/**
+ * How long a QUEUED row must be absent from the window before the sweep treats
+ * it as orphaned.
+ *
+ * Generous on purpose. The claim commits before it publishes, so a row is
+ * briefly QUEUED and not yet in Redis during entirely normal operation; a
+ * short grace period would reclaim rows that were about to be pushed.
+ */
+const ORPHAN_GRACE_MS = 30_000;
 
 /**
  * The execution window manager.
@@ -67,6 +81,7 @@ export class Scheduler {
    */
   async tick(): Promise<TickResult> {
     const reclaimed = await this.reclaimAbandoned();
+    const orphansRecovered = await this.recoverOrphans();
 
     const capacityAvailable = await this.queue.availableCapacity();
 
@@ -75,6 +90,7 @@ export class Scheduler {
       // Postgres may hold millions more; they wait there.
       return {
         reclaimed,
+        orphansRecovered,
         enqueued: 0,
         occupancy: await this.queue.occupancy(),
         capacityAvailable: 0,
@@ -110,10 +126,41 @@ export class Scheduler {
 
     return {
       reclaimed,
+      orphansRecovered,
       enqueued,
       occupancy: await this.queue.occupancy(),
       capacityAvailable: await this.queue.availableCapacity(),
     };
+  }
+
+  /**
+   * Return QUEUED rows that the window does not actually hold.
+   *
+   * A row reaches this state if the process dies between committing the claim
+   * and publishing to Redis. It is then invisible to everything: the scheduler
+   * looks only at PENDING and WAITING, and workers see only what Redis hands
+   * them. Without this sweep such a delivery is lost silently and permanently
+   * — no error, no log, just a webhook that never arrives.
+   *
+   * Membership is checked against Redis rather than assumed from age, because
+   * during a large backlog a row can legitimately sit QUEUED in the window for
+   * a long time waiting for a worker.
+   */
+  private async recoverOrphans(): Promise<number> {
+    const candidates = await findOrphanedQueued(ORPHAN_GRACE_MS);
+    if (candidates.length === 0) return 0;
+
+    const orphans = await this.queue.notInWindow(candidates);
+    if (orphans.length === 0) return 0;
+
+    const recovered = await resetToPending(orphans);
+
+    log.warn(
+      { count: recovered },
+      "Recovered QUEUED deliveries missing from the execution window",
+    );
+
+    return recovered;
   }
 
   /**

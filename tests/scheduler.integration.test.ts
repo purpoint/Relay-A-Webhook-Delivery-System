@@ -329,6 +329,94 @@ describe("reclaiming abandoned work", () => {
   });
 });
 
+describe("no delivery is left QUEUED but absent from the window", () => {
+  it("keeps QUEUED rows and window contents in agreement", async () => {
+    /**
+     * Regression test for a leak found by running the full system.
+     *
+     * The claim originally published to Redis inside the transaction, before
+     * committing the QUEUED status. A worker could then claim the ID, run
+     * UPDATE ... WHERE status = 'QUEUED', see PENDING in its snapshot, match
+     * zero rows — without blocking, because a row failing the WHERE clause is
+     * never a candidate for the row lock — and release the slot as an orphan.
+     * The scheduler then committed QUEUED, leaving a row invisible to the
+     * scheduler (which reads PENDING and WAITING) and to workers (which read
+     * Redis). A live run accumulated 1,216 of them in twenty seconds.
+     *
+     * Every QUEUED row must therefore be present in the window.
+     */
+    await seedDeliveries(200);
+    await scheduler.tick();
+
+    const queued = await prisma.delivery.findMany({
+      where: { status: "QUEUED" },
+      select: { id: true },
+    });
+
+    const missing = await queue.notInWindow(queued.map((row) => row.id));
+
+    expect(missing).toEqual([]);
+    expect(queued).toHaveLength(WINDOW);
+  });
+
+  it("returns rows the window refused to PENDING", async () => {
+    // Claiming commits before publishing, so anything the window declines
+    // must be walked back or it would be stranded in QUEUED.
+    await seedDeliveries(200);
+    await scheduler.tick();
+    await scheduler.tick();
+
+    const counts = await prisma.delivery.groupBy({
+      by: ["status"],
+      _count: { _all: true },
+    });
+    const byStatus = Object.fromEntries(counts.map((c) => [c.status, c._count._all]));
+
+    expect(byStatus["QUEUED"]).toBe(WINDOW);
+    expect(byStatus["PENDING"]).toBe(200 - WINDOW);
+  });
+
+  it("sweeps orphans left by a crash between commit and publish", async () => {
+    /**
+     * Committing before publishing narrows the race but cannot remove it: a
+     * process that dies in between leaves QUEUED rows with nothing in Redis.
+     * The sweep is what makes that recoverable rather than permanent.
+     */
+    await seedDeliveries(3);
+
+    // Simulate the crash: rows committed as QUEUED, never published, and aged
+    // past the grace period.
+    const stale = new Date(Date.now() - 120_000);
+    await prisma.delivery.updateMany({
+      data: { status: "QUEUED", updatedAt: stale },
+    });
+    expect(await queue.occupancy()).toBe(0);
+
+    const result = await scheduler.tick();
+
+    expect(result.orphansRecovered).toBe(3);
+    // Recovered to PENDING and re-enqueued within the same tick.
+    expect(await queue.occupancy()).toBe(3);
+  });
+
+  it("leaves genuinely queued rows alone during a backlog", async () => {
+    // A row can sit QUEUED in the window for a long time waiting for a worker.
+    // The sweep must check Redis membership, not merely age.
+    await seedDeliveries(200);
+    await scheduler.tick();
+
+    await prisma.delivery.updateMany({
+      where: { status: "QUEUED" },
+      data: { updatedAt: new Date(Date.now() - 120_000) },
+    });
+
+    const result = await scheduler.tick();
+
+    expect(result.orphansRecovered).toBe(0);
+    expect(await prisma.delivery.count({ where: { status: "QUEUED" } })).toBe(WINDOW);
+  });
+});
+
 describe("multiple schedulers", () => {
   it("hand out disjoint sets of deliveries", async () => {
     /**

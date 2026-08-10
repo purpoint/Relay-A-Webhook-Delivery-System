@@ -46,6 +46,29 @@ const envSchema = z.object({
     .min(32, "JWT_SECRET must be at least 32 characters"),
   JWT_EXPIRES_IN: z.string().min(1).default("1h"),
 
+  // ── Rate limits (requests per minute) ─────────────────────────────────────
+  /**
+   * Management endpoints — projects, webhooks, keys. A person clicking around
+   * a dashboard, so a low ceiling is generous.
+   */
+  RATE_LIMIT_MAX: positiveInt.default(100),
+
+  /**
+   * Auth endpoints. Deliberately far tighter: these are the target for
+   * credential stuffing, and every attempt costs us an Argon2 hash, so an
+   * unthrottled login is also a way to exhaust our own CPU.
+   */
+  AUTH_RATE_LIMIT_MAX: positiveInt.default(10),
+
+  /**
+   * Event ingest. This one is a machine publishing in bulk, not a person, and
+   * it needs a completely different order of magnitude — the default here is
+   * 100/second. Applying the management limit to ingest would cap a customer
+   * at 100 events a minute, which for a webhook platform is no rate limit at
+   * all, it is an outage.
+   */
+  INGEST_RATE_LIMIT_MAX: positiveInt.default(6000),
+
   // ── Webhook URL policy ────────────────────────────────────────────────────
   /**
    * Permit webhook URLs pointing at loopback or private addresses.

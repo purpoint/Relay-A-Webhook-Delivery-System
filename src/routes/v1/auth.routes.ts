@@ -22,7 +22,7 @@ export async function authRoutes(app: AppInstance): Promise<void> {
    */
   const authRateLimit = {
     config: {
-      rateLimit: { max: 10, timeWindow: "1 minute" },
+      rateLimit: { max: env.AUTH_RATE_LIMIT_MAX, timeWindow: "1 minute" },
     },
   };
 

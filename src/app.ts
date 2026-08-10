@@ -57,7 +57,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
 
   if (rateLimitEnabled) {
     await app.register(rateLimit, {
-      max: 100,
+      // The default for management endpoints. Auth tightens it and ingest
+      // raises it, both via per-route config.
+      max: env.RATE_LIMIT_MAX,
       timeWindow: "1 minute",
       // Per-project once an API key is presented, per-IP otherwise. Rate
       // limiting purely by IP would let one customer behind a NAT exhaust the

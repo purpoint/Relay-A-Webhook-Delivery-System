@@ -4,6 +4,7 @@ import { idempotencyKeySchema, publishEventSchema } from "../../validators/event
 import { publishEvent } from "../../services/event.service.js";
 import { success } from "../../utils/response.js";
 import { UnauthorizedError } from "../../utils/errors.js";
+import { env } from "../../config/env.js";
 import type { InputJsonValue } from "../../generated/prisma/internal/prismaNamespace.js";
 
 /**
@@ -17,7 +18,23 @@ import type { InputJsonValue } from "../../generated/prisma/internal/prismaNames
 export async function eventRoutes(app: AppInstance): Promise<void> {
   app.addHook("preHandler", requireApiKey);
 
-  app.post("/events", async (request, reply) => {
+  /**
+   * Ingest gets its own, far higher ceiling.
+   *
+   * Found by load testing: publishing 12,000 events under the shared
+   * management limit produced 100 accepted and 11,900 rejected. A limit
+   * calibrated for a person clicking around a dashboard is not a limit for a
+   * machine publishing in bulk — applied here it is not throttling, it is an
+   * outage. The counter is keyed per API key, so one busy customer cannot
+   * consume another's budget.
+   */
+  const ingestRateLimit = {
+    config: {
+      rateLimit: { max: env.INGEST_RATE_LIMIT_MAX, timeWindow: "1 minute" },
+    },
+  };
+
+  app.post("/events", ingestRateLimit, async (request, reply) => {
     // requireApiKey guarantees this, but the type is optional because most
     // routes authenticate differently. Narrowing here keeps that honest rather
     // than asserting it away.

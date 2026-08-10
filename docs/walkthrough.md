@@ -2,7 +2,7 @@
 
 A plain-English record of what this project is, why it's built the way it is, and what exists so far. No prior knowledge assumed. Every piece of jargon is explained the first time it appears.
 
-Updated through **M2 (Webhooks & event ingest)**.
+Updated through **M3 (The execution window)**.
 
 ---
 
@@ -504,7 +504,24 @@ running the server rather than trusting the tests.
 
 ---
 
-# Part 12 — Where the project stands
+# Part 12 — Milestone 3: The execution window
+
+The milestone the project is named after. The bounded Redis window, the Lua
+scripts that keep the cap exact under concurrency, and the scheduler that
+refills it without ever overfilling it.
+
+### → **[walkthrough-m3.md](walkthrough-m3.md)**
+
+It covers why in-flight jobs must count against capacity, the check-then-act
+race Lua exists to prevent, how `FOR UPDATE SKIP LOCKED` lets several
+schedulers run safely, a timezone bug that would have defeated exponential
+backoff entirely, and a rate-limit mistake that only load testing revealed.
+
+Verified: 6,000 deliveries in Postgres, Redis pinned at exactly 5,000.
+
+---
+
+# Part 13 — Where the project stands
 
 ## Verified working
 
@@ -512,7 +529,7 @@ running the server rather than trusting the tests.
 |---|---|
 | `npm run typecheck` | Clean |
 | `npm run lint` | Clean |
-| `npm test` | 96 passing |
+| `npm test` | 137 passing |
 | `GET /health` | `200` |
 | `GET /readyz` | `503` in 2.0s, correctly reporting `database: true, redis: false` |
 | Shutdown on signal | Exits in 2s |
@@ -532,8 +549,8 @@ The `503` is the **correct** answer — Redis genuinely isn't installed yet. The
 | **M0** | Scaffold — config, logging, health, database schema | **Done** |
 | **M1** | Auth & tenancy — users, projects, API keys | **Done** |
 | **M2** | Webhooks & event ingest — the write path | **Done** |
-| M3 | Execution window & scheduler — *the core idea* | Next |
-| M4 | Worker pool — the delivery engine |  |
+| **M3** | Execution window & scheduler — *the core idea* | **Done** |
+| M4 | Worker pool — the delivery engine | Next |
 | M5 | Observability & hardening — plus the proof |  |
 
 ## What "done" will look like

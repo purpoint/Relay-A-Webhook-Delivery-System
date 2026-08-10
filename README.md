@@ -38,7 +38,7 @@ Under construction, milestone by milestone. See [docs/milestone.md](docs/milesto
 - [x] **M0** — Scaffold: config, logging, health probes, Prisma schema
 - [x] **M1** — Auth & tenancy: users, projects, API keys
 - [x] **M2** — Webhooks & event ingest: fan-out, idempotency, SSRF guard
-- [ ] **M3** — Execution window & scheduler
+- [x] **M3** — Execution window & scheduler: bounded Redis, Lua atomicity, SKIP LOCKED
 - [ ] **M4** — Worker pool
 - [ ] **M5** — Observability & hardening
 - [ ] **M6** — Live execution-window monitor (single screen)
@@ -89,6 +89,7 @@ Brings up Postgres, Redis, migrations, the API, a scheduler and two workers. Add
 | [Walkthrough](docs/walkthrough.md) | The project from first principles, plus M0 |
 | [Walkthrough — M1](docs/walkthrough-m1.md) | Authentication, hashing, JWTs, tenancy |
 | [Walkthrough — M2](docs/walkthrough-m2.md) | SSRF, fan-out transactions, idempotency |
+| [Walkthrough — M3](docs/walkthrough-m3.md) | The bounded window, Lua atomicity, SKIP LOCKED |
 
 Reference:
 

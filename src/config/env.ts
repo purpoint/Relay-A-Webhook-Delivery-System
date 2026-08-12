@@ -44,7 +44,24 @@ const envSchema = z.object({
   JWT_SECRET: z
     .string()
     .min(32, "JWT_SECRET must be at least 32 characters"),
-  JWT_EXPIRES_IN: z.string().min(1).default("1h"),
+  /**
+   * Access token lifetime.
+   *
+   * Short on purpose. A JWT is verified by signature alone, so it cannot be
+   * revoked before it expires — the only real control over a stolen one is how
+   * quickly it stops working. Fifteen minutes is short enough to limit the
+   * damage and, with refresh tokens, invisible to the user.
+   */
+  JWT_EXPIRES_IN: z.string().min(1).default("15m"),
+
+  /**
+   * Refresh token lifetime, in days.
+   *
+   * Long, because its job is to spare the user a daily login. Safe to be long
+   * only because these are revocable database rows rather than self-contained
+   * tokens, and because each use rotates them.
+   */
+  REFRESH_TOKEN_TTL_DAYS: positiveInt.default(7),
 
   // ── Rate limits (requests per minute) ─────────────────────────────────────
   /**

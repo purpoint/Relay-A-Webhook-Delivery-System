@@ -22,9 +22,40 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  projects Project[]
+  projects      Project[]
+  refreshTokens RefreshToken[]
 
   @@map("users")
+}
+
+/// A long-lived credential used to obtain fresh access tokens.
+///
+/// Access tokens are JWTs: self-contained, verified by signature alone, and
+/// therefore impossible to revoke before they expire. That is fine when they
+/// last fifteen minutes and are held only in browser memory.
+///
+/// Refresh tokens are the opposite by design — long-lived, so they *must* be
+/// revocable, which means they have to exist as rows we can delete. Only the
+/// hash is stored, for the same reason as API keys: a database leak must not
+/// yield working credentials.
+model RefreshToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  hashedToken String   @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  /// Set when this token is exchanged for a new one. A second use of an
+  /// already-rotated token means the cookie was stolen — see the reuse
+  /// detection in auth.service.ts.
+  replacedById String? @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
 }
 
 model Project {

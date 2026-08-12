@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import jwt from "@fastify/jwt";
+import cookie from "@fastify/cookie";
 import { randomUUID } from "node:crypto";
 
 import { env, isProduction, isTest } from "./config/env.js";
@@ -78,6 +79,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   await app.register(jwt, {
     secret: env.JWT_SECRET,
   });
+
+  // Refresh tokens travel in an httpOnly cookie, so the cookie parser must be
+  // registered before any route that reads one.
+  await app.register(cookie);
 
   // Registered before the routes so it can collect their schemas. Skipped in
   // tests, where nothing reads it and it only slows startup.

@@ -1,25 +1,35 @@
 import type { AppInstance } from "../../types/app.js";
 import { loginSchema, registerSchema } from "../../validators/auth.schema.js";
 import { login, register } from "../../services/auth.service.js";
+import {
+  REFRESH_COOKIE_NAME,
+  endSession,
+  issueRefreshToken,
+  refreshCookieOptions,
+  refreshSession,
+} from "../../services/session.service.js";
 import { success } from "../../utils/response.js";
+import { UnauthorizedError } from "../../utils/errors.js";
 import { env } from "../../config/env.js";
+import { requireUser } from "../../middleware/authenticate.js";
 
 /**
- * Registration and login.
+ * Registration, login, refresh and logout.
  *
- * Handlers stay thin on purpose: validate, call a service, shape a response.
- * All the rules live in the service, which is what lets the same logic be
- * exercised by tests without an HTTP server.
+ * Two tokens with different jobs:
+ *
+ *   The access token is a JWT in the response body. The browser keeps it in
+ *   memory only — never localStorage, where any injected script could read it.
+ *   It lasts fifteen minutes.
+ *
+ *   The refresh token goes back as an httpOnly cookie, unreadable by
+ *   JavaScript, and is exchanged for a new access token when the old one
+ *   expires. It lasts a week and is revocable.
+ *
+ * The split means an XSS bug can steal at most fifteen minutes of access,
+ * rather than a credential that works for a week.
  */
 export async function authRoutes(app: AppInstance): Promise<void> {
-  /**
-   * Auth endpoints get a far tighter rate limit than the global default.
-   *
-   * They are the natural target for credential stuffing — replaying millions
-   * of leaked email/password pairs. Argon2 makes each attempt expensive for us
-   * as well as the attacker, so an unthrottled login endpoint is also a way to
-   * exhaust our own CPU.
-   */
   const authRateLimit = {
     config: {
       rateLimit: { max: env.AUTH_RATE_LIMIT_MAX, timeWindow: "1 minute" },
@@ -31,8 +41,12 @@ export async function authRoutes(app: AppInstance): Promise<void> {
 
     const { user } = await register(email, password);
     const token = await signToken(app, user.id, user.email);
+    const refresh = await issueRefreshToken(user.id);
 
-    return reply.code(201).send(success({ user, token }));
+    return reply
+      .setCookie(REFRESH_COOKIE_NAME, refresh.plaintext, refreshCookieOptions(refresh.expiresAt))
+      .code(201)
+      .send(success({ user, token }));
   });
 
   app.post("/login", authRateLimit, async (request, reply) => {
@@ -40,17 +54,72 @@ export async function authRoutes(app: AppInstance): Promise<void> {
 
     const { user } = await login(email, password);
     const token = await signToken(app, user.id, user.email);
+    const refresh = await issueRefreshToken(user.id);
 
-    return reply.code(200).send(success({ user, token }));
+    return reply
+      .setCookie(REFRESH_COOKIE_NAME, refresh.plaintext, refreshCookieOptions(refresh.expiresAt))
+      .code(200)
+      .send(success({ user, token }));
+  });
+
+  /**
+   * Exchange the refresh cookie for a new access token.
+   *
+   * Rate limited like login: this endpoint also accepts a credential, and an
+   * attacker holding a stolen cookie should not be able to mint access tokens
+   * without limit.
+   */
+  app.post("/refresh", authRateLimit, async (request, reply) => {
+    const presented = request.cookies[REFRESH_COOKIE_NAME];
+
+    if (!presented) throw new UnauthorizedError("No session");
+
+    const result = await refreshSession(presented);
+    const token = await signToken(app, result.userId, result.email);
+
+    // The old cookie is now revoked, so it must be replaced rather than left
+    // in place — the browser would otherwise present a dead token next time
+    // and trigger the reuse alarm on a legitimate client.
+    return reply
+      .setCookie(
+        REFRESH_COOKIE_NAME,
+        result.refresh.plaintext,
+        refreshCookieOptions(result.refresh.expiresAt),
+      )
+      .send(success({ token, user: { id: result.userId, email: result.email } }));
+  });
+
+  app.post("/logout", async (request, reply) => {
+    const presented = request.cookies[REFRESH_COOKIE_NAME];
+
+    if (presented) await endSession(presented);
+
+    // Clear the cookie whether or not the token was valid, so a browser
+    // holding something stale is not left presenting it forever.
+    return reply
+      .clearCookie(REFRESH_COOKIE_NAME, { path: "/api/v1/auth" })
+      .send(success({ signedOut: true }));
+  });
+
+  /**
+   * Who am I?
+   *
+   * The frontend calls this after a refresh to populate its header without
+   * having to decode the JWT itself.
+   */
+  app.get("/me", { preHandler: requireUser }, async (request, reply) => {
+    return reply.send(
+      success({ id: request.user.sub, email: request.user.email }),
+    );
   });
 }
 
 /**
  * Issue a signed access token.
  *
- * `sub` (subject) is the standard JWT claim for "who this token is about".
- * Nothing secret goes in the payload — a JWT is signed, not encrypted, so
- * anyone holding it can read its contents.
+ * `sub` is the standard JWT claim for who the token is about. Nothing secret
+ * goes in the payload — a JWT is signed, not encrypted, so anyone holding it
+ * can read its contents.
  */
 async function signToken(
   app: AppInstance,

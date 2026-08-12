@@ -12,6 +12,7 @@ import { registerErrorHandler } from "./middleware/error-handler.js";
 import { healthRoutes } from "./routes/health.js";
 import { v1Routes } from "./routes/v1/index.js";
 import { registerSwagger } from "./config/swagger.js";
+import { registerStatic } from "./config/static.js";
 import type { AppInstance } from "./types/app.js";
 
 export interface BuildAppOptions {
@@ -28,6 +29,9 @@ export interface BuildAppOptions {
 
   /** Serve interactive docs at /docs. Off in tests, where nothing reads them. */
   swagger?: boolean;
+
+  /** Serve the built monitor page. Off in tests. */
+  serveStatic?: boolean;
 }
 
 /**
@@ -103,7 +107,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
     await registerSwagger(app);
   }
 
-  registerErrorHandler(app);
+  /**
+   * Before the error handler, because the handler needs to know whether a
+   * built frontend exists in order to decide what an unmatched GET should
+   * return. Registering a wildcard route here is safe — Fastify matches
+   * specific paths ahead of wildcards, so the API routes below still win.
+   */
+  const serveStatic = options.serveStatic ?? !isTest;
+  const staticServed = serveStatic ? await registerStatic(app) : false;
+
+  registerErrorHandler(app, { spaFallback: staticServed });
 
   // Health probes sit outside the version prefix — orchestrators shouldn't
   // have to track the API version to know whether the process is alive.

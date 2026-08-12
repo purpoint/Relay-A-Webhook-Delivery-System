@@ -138,6 +138,10 @@ export async function replayDelivery(
   return result.count > 0;
 }
 
+export async function countEventsForProject(projectId: string): Promise<number> {
+  return prisma.event.count({ where: { projectId } });
+}
+
 /** Delivery status counts for one project, for the dashboard summary. */
 export async function deliveryStatsForProject(
   projectId: string,

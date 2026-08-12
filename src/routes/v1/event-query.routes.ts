@@ -10,6 +10,7 @@ import {
   listProjectEvents,
   replay,
 } from "../../services/event-query.service.js";
+import { getMonitorSnapshot } from "../../services/monitor.service.js";
 import { success } from "../../utils/response.js";
 
 /**
@@ -154,6 +155,30 @@ export async function eventQueryRoutes(app: AppInstance): Promise<void> {
        * and it takes the ordinary path from there.
        */
       return reply.code(202).send(success({ id: deliveryId, status: "PENDING" }));
+    },
+  );
+
+  app.get(
+    "/projects/:projectId/monitor",
+    {
+      schema: {
+        tags: ["events"],
+        summary: "Live snapshot for the monitor page",
+        description:
+          "Execution window occupancy plus delivery counts, in one cheap call " +
+          "intended to be polled every second. The window figures are system-wide " +
+          "because the window itself is: one bounded pool that every project's " +
+          "deliveries pass through.",
+        security: secured,
+        params: projectIdParamSchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId } = projectIdParamSchema.parse(request.params);
+
+      const snapshot = await getMonitorSnapshot(projectId, request.user.sub);
+
+      return reply.send(success(snapshot));
     },
   );
 

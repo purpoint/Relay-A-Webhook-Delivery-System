@@ -10,7 +10,7 @@
     "dev": "tsx watch src/server.ts",
     "dev:scheduler": "tsx watch src/scheduler/main.ts",
     "dev:worker": "tsx watch src/workers/main.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "npm run build:web && tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "start:scheduler": "node dist/scheduler/main.js",
     "start:worker": "node dist/workers/main.js",
@@ -27,7 +27,9 @@
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset",
     "receiver": "node scripts/receiver.mjs",
-    "load-test": "node scripts/load-test.mjs"
+    "load-test": "node scripts/load-test.mjs",
+    "build:web": "cd web && npm install && npm run build",
+    "dev:web": "cd web && npm run dev"
   },
   "keywords": [
     "webhooks",

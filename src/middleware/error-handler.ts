@@ -12,7 +12,22 @@ import { isProduction } from "../config/env.js";
  * anything about HTTP, and guarantees that every failure leaves through the
  * same response envelope as every success.
  */
-export function registerErrorHandler(app: AppInstance): void {
+export interface ErrorHandlerOptions {
+  /**
+   * Serve the single-page app for unmatched GETs instead of a JSON 404.
+   *
+   * The monitor's routes exist in the browser, not on the server, so a deep
+   * link or a page refresh would otherwise 404. API and docs paths are always
+   * excluded — a mistyped endpoint must return a JSON error, not a page of
+   * HTML, which is considerably harder to debug against.
+   */
+  spaFallback?: boolean;
+}
+
+export function registerErrorHandler(
+  app: AppInstance,
+  options: ErrorHandlerOptions = {},
+): void {
   app.setErrorHandler((error: FastifyError | Error, request: FastifyRequest, reply: FastifyReply) => {
     // Errors we raised deliberately: the message is safe to show the caller.
     if (error instanceof AppError) {
@@ -66,6 +81,16 @@ export function registerErrorHandler(app: AppInstance): void {
   });
 
   app.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply) => {
+    const isApiPath =
+      request.url.startsWith("/api") ||
+      request.url.startsWith("/docs") ||
+      request.url.startsWith("/health") ||
+      request.url.startsWith("/readyz");
+
+    if (options.spaFallback && request.method === "GET" && !isApiPath) {
+      return reply.sendFile("index.html");
+    }
+
     return reply
       .code(404)
       .send(failure("NOT_FOUND", `Route ${request.method} ${request.url} not found`));

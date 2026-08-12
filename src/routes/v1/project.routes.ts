@@ -27,62 +27,137 @@ export async function projectRoutes(app: AppInstance): Promise<void> {
   // added below is authenticated by default rather than by remembering to.
   app.addHook("preHandler", requireUser);
 
-  app.post("/projects", async (request, reply) => {
-    const { name } = createProjectSchema.parse(request.body);
+  /** Every route in this group needs a bearer token; stated once. */
+  const secured = [{ bearerAuth: [] }];
 
-    const project = await createProjectForUser(request.user.sub, name);
+  app.post(
+    "/projects",
+    {
+      schema: {
+        tags: ["projects"],
+        summary: "Create a project",
+        security: secured,
+        body: createProjectSchema,
+      },
+    },
+    async (request, reply) => {
+      const { name } = createProjectSchema.parse(request.body);
 
-    return reply.code(201).send(success(project));
-  });
+      const project = await createProjectForUser(request.user.sub, name);
 
-  app.get("/projects", async (request, reply) => {
-    const projects = await listProjects(request.user.sub);
-    return reply.send(success(projects));
-  });
+      return reply.code(201).send(success(project));
+    },
+  );
 
-  app.get("/projects/:projectId", async (request, reply) => {
-    const { projectId } = projectIdParamSchema.parse(request.params);
+  app.get(
+    "/projects",
+    {
+      schema: {
+        tags: ["projects"],
+        summary: "List your projects",
+        security: secured,
+      },
+    },
+    async (request, reply) => {
+      const projects = await listProjects(request.user.sub);
+      return reply.send(success(projects));
+    },
+  );
 
-    const project = await getOwnedProject(projectId, request.user.sub);
+  app.get(
+    "/projects/:projectId",
+    {
+      schema: {
+        tags: ["projects"],
+        summary: "Fetch one project",
+        description:
+          "Returns 404 rather than 403 for a project belonging to someone else — " +
+          "403 would confirm that the id is real.",
+        security: secured,
+        params: projectIdParamSchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId } = projectIdParamSchema.parse(request.params);
 
-    return reply.send(success(project));
-  });
+      const project = await getOwnedProject(projectId, request.user.sub);
+
+      return reply.send(success(project));
+    },
+  );
 
   // ── API keys ──────────────────────────────────────────────────────────────
 
-  app.post("/projects/:projectId/api-keys", async (request, reply) => {
-    const { projectId } = projectIdParamSchema.parse(request.params);
-    const { name } = createApiKeySchema.parse(request.body);
+  app.post(
+    "/projects/:projectId/api-keys",
+    {
+      schema: {
+        tags: ["projects"],
+        summary: "Mint an API key",
+        description:
+          "The plaintext key appears in this response and never again — only a " +
+          "SHA-256 hash is stored, so it genuinely cannot be shown later. Lose it " +
+          "and issue a new one.",
+        security: secured,
+        params: projectIdParamSchema,
+        body: createApiKeySchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId } = projectIdParamSchema.parse(request.params);
+      const { name } = createApiKeySchema.parse(request.body);
 
-    const { key, plaintext } = await issueApiKey(projectId, request.user.sub, name);
+      const { key, plaintext } = await issueApiKey(projectId, request.user.sub, name);
 
-    /**
-     * The only moment the full key exists outside the caller's own records.
-     * We store a hash, so if this response is lost the key is unrecoverable
-     * and a new one must be issued — which is the intended property.
-     */
-    return reply.code(201).send(
-      success({
-        ...key,
-        plaintext,
-        warning: "Store this key now. It cannot be retrieved again.",
-      }),
-    );
-  });
+      return reply.code(201).send(
+        success({
+          ...key,
+          plaintext,
+          warning: "Store this key now. It cannot be retrieved again.",
+        }),
+      );
+    },
+  );
 
-  app.get("/projects/:projectId/api-keys", async (request, reply) => {
-    const { projectId } = projectIdParamSchema.parse(request.params);
+  app.get(
+    "/projects/:projectId/api-keys",
+    {
+      schema: {
+        tags: ["projects"],
+        summary: "List API keys",
+        description: "Shows only the visible prefix of each key, never the key itself.",
+        security: secured,
+        params: projectIdParamSchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId } = projectIdParamSchema.parse(request.params);
 
-    const keys = await listKeys(projectId, request.user.sub);
+      const keys = await listKeys(projectId, request.user.sub);
 
-    return reply.send(success(keys));
-  });
+      return reply.send(success(keys));
+    },
+  );
 
-  app.delete("/projects/:projectId/api-keys/:keyId", async (request, reply) => {
-    const { projectId, keyId } = apiKeyIdParamSchema.parse(request.params);
+  app.delete(
+    "/projects/:projectId/api-keys/:keyId",
+    {
+      schema: {
+        tags: ["projects"],
+        summary: "Revoke an API key",
+        description:
+          "Revokes rather than deletes, so the record of which key published which " +
+          "event survives. Revocation takes effect immediately.",
+        security: secured,
+        params: apiKeyIdParamSchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId, keyId } = apiKeyIdParamSchema.parse(request.params);
 
-    await revokeKey(projectId, request.user.sub, keyId);
+      await revokeKey(projectId, request.user.sub, keyId);
 
-    return reply.send(success({ id: keyId, revoked: true }));
-  });
+      return reply.send(success({ id: keyId, revoked: true }));
+    },
+  );
 }

@@ -1,5 +1,6 @@
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
+import { jsonSchemaTransform } from "fastify-type-provider-zod";
 import type { AppInstance } from "../types/app.js";
 import { env, isProduction } from "./env.js";
 
@@ -12,6 +13,22 @@ import { env, isProduction } from "./env.js";
  */
 export async function registerSwagger(app: AppInstance): Promise<void> {
   await app.register(swagger, {
+    /**
+     * Converts the Zod schemas attached to each route into the JSON Schema
+     * OpenAPI expects.
+     *
+     * Without this, routes carry no schema Fastify can read, so every endpoint
+     * appeared under "default" with "No parameters" and no request body to
+     * edit — documentation that described nothing and could not be used to try
+     * anything.
+     *
+     * Deriving the docs from the same Zod schemas that perform validation
+     * means the two cannot disagree. Hand-written JSON Schema alongside them
+     * would be a second source of truth, and it would drift the first time
+     * someone changed a field in one place only.
+     */
+    transform: jsonSchemaTransform,
+
     openapi: {
       openapi: "3.1.0",
       info: {

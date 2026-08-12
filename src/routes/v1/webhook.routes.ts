@@ -26,45 +26,123 @@ import { success } from "../../utils/response.js";
 export async function webhookRoutes(app: AppInstance): Promise<void> {
   app.addHook("preHandler", requireUser);
 
-  app.post("/projects/:projectId/webhooks", async (request, reply) => {
-    const { projectId } = projectIdParamSchema.parse(request.params);
-    const { url, description } = createWebhookSchema.parse(request.body);
+  const secured = [{ bearerAuth: [] }];
 
-    const webhook = await registerWebhook(projectId, request.user.sub, url, description);
+  app.post(
+    "/projects/:projectId/webhooks",
+    {
+      schema: {
+        tags: ["webhooks"],
+        summary: "Register an endpoint",
+        description:
+          "URLs are checked against the SSRF guard: loopback, private ranges, " +
+          "link-local and cloud metadata addresses are rejected, because this URL " +
+          "is one our own workers will later fetch from inside our network. " +
+          "Each webhook is issued a signing secret used to sign every delivery.",
+        security: secured,
+        params: projectIdParamSchema,
+        body: createWebhookSchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId } = projectIdParamSchema.parse(request.params);
+      const { url, description } = createWebhookSchema.parse(request.body);
 
-    return reply.code(201).send(success(webhook));
-  });
+      const webhook = await registerWebhook(
+        projectId,
+        request.user.sub,
+        url,
+        description,
+      );
 
-  app.get("/projects/:projectId/webhooks", async (request, reply) => {
-    const { projectId } = projectIdParamSchema.parse(request.params);
+      return reply.code(201).send(success(webhook));
+    },
+  );
 
-    const webhooks = await listWebhooks(projectId, request.user.sub);
+  app.get(
+    "/projects/:projectId/webhooks",
+    {
+      schema: {
+        tags: ["webhooks"],
+        summary: "List endpoints",
+        security: secured,
+        params: projectIdParamSchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId } = projectIdParamSchema.parse(request.params);
 
-    return reply.send(success(webhooks));
-  });
+      const webhooks = await listWebhooks(projectId, request.user.sub);
 
-  app.get("/projects/:projectId/webhooks/:webhookId", async (request, reply) => {
-    const { projectId, webhookId } = webhookIdParamSchema.parse(request.params);
+      return reply.send(success(webhooks));
+    },
+  );
 
-    const webhook = await getWebhook(projectId, request.user.sub, webhookId);
+  app.get(
+    "/projects/:projectId/webhooks/:webhookId",
+    {
+      schema: {
+        tags: ["webhooks"],
+        summary: "Fetch one endpoint",
+        security: secured,
+        params: webhookIdParamSchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId, webhookId } = webhookIdParamSchema.parse(request.params);
 
-    return reply.send(success(webhook));
-  });
+      const webhook = await getWebhook(projectId, request.user.sub, webhookId);
 
-  app.patch("/projects/:projectId/webhooks/:webhookId", async (request, reply) => {
-    const { projectId, webhookId } = webhookIdParamSchema.parse(request.params);
-    const changes = updateWebhookSchema.parse(request.body);
+      return reply.send(success(webhook));
+    },
+  );
 
-    const webhook = await modifyWebhook(projectId, request.user.sub, webhookId, changes);
+  app.patch(
+    "/projects/:projectId/webhooks/:webhookId",
+    {
+      schema: {
+        tags: ["webhooks"],
+        summary: "Update an endpoint",
+        description:
+          "The URL is re-validated here as well as on creation. Checking only at " +
+          "creation would allow a harmless public URL to be registered and then " +
+          "edited to an internal address.",
+        security: secured,
+        params: webhookIdParamSchema,
+        body: updateWebhookSchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId, webhookId } = webhookIdParamSchema.parse(request.params);
+      const changes = updateWebhookSchema.parse(request.body);
 
-    return reply.send(success(webhook));
-  });
+      const webhook = await modifyWebhook(
+        projectId,
+        request.user.sub,
+        webhookId,
+        changes,
+      );
 
-  app.delete("/projects/:projectId/webhooks/:webhookId", async (request, reply) => {
-    const { projectId, webhookId } = webhookIdParamSchema.parse(request.params);
+      return reply.send(success(webhook));
+    },
+  );
 
-    await removeWebhook(projectId, request.user.sub, webhookId);
+  app.delete(
+    "/projects/:projectId/webhooks/:webhookId",
+    {
+      schema: {
+        tags: ["webhooks"],
+        summary: "Delete an endpoint",
+        security: secured,
+        params: webhookIdParamSchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId, webhookId } = webhookIdParamSchema.parse(request.params);
 
-    return reply.send(success({ id: webhookId, deleted: true }));
-  });
+      await removeWebhook(projectId, request.user.sub, webhookId);
+
+      return reply.send(success({ id: webhookId, deleted: true }));
+    },
+  );
 }

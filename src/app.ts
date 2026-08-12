@@ -3,6 +3,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import jwt from "@fastify/jwt";
 import cookie from "@fastify/cookie";
+import { validatorCompiler } from "fastify-type-provider-zod";
 import { randomUUID } from "node:crypto";
 
 import { env, isProduction, isTest } from "./config/env.js";
@@ -53,6 +54,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
     // generous webhook payload and an effective cap on memory per request.
     bodyLimit: 1_048_576,
   });
+
+  /**
+   * Validate requests with the Zod schemas attached to each route.
+   *
+   * Only the validator is installed, not the serializer. The serializer would
+   * strip response fields absent from a declared response schema, which is a
+   * useful discipline but would mean writing a schema for every response
+   * shape before any of them could be returned safely. Request validation is
+   * what makes the docs usable and the inputs trustworthy; responses are
+   * already built by typed helpers.
+   */
+  app.setValidatorCompiler(validatorCompiler);
 
   await app.register(helmet, {
     // Relay is a JSON API; the CSP defaults exist to constrain HTML documents

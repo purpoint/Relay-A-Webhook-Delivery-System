@@ -40,41 +40,109 @@ const deliveryIdParamSchema = z.object({
 export async function eventQueryRoutes(app: AppInstance): Promise<void> {
   app.addHook("preHandler", requireUser);
 
-  app.get("/projects/:projectId/events", async (request, reply) => {
-    const { projectId } = projectIdParamSchema.parse(request.params);
-    const query = listQuerySchema.parse(request.query);
+  const secured = [{ bearerAuth: [] }];
 
-    const page = await listProjectEvents(projectId, request.user.sub, query);
+  app.get(
+    "/projects/:projectId/events",
+    {
+      schema: {
+        tags: ["events"],
+        summary: "List published events",
+        description:
+          "Cursor-paginated. Pass the returned `nextCursor` back as `cursor` for " +
+          "the next page — an offset would grow slower the deeper you page and " +
+          "would repeat rows when new events arrive mid-paging.",
+        security: secured,
+        params: projectIdParamSchema,
+        querystring: listQuerySchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId } = projectIdParamSchema.parse(request.params);
+      const query = listQuerySchema.parse(request.query);
 
-    return reply.send(success(page));
-  });
+      const page = await listProjectEvents(projectId, request.user.sub, query);
 
-  app.get("/projects/:projectId/events/:eventId", async (request, reply) => {
-    const { projectId, eventId } = eventIdParamSchema.parse(request.params);
+      return reply.send(success(page));
+    },
+  );
 
-    const event = await getEvent(projectId, request.user.sub, eventId);
+  app.get(
+    "/projects/:projectId/events/:eventId",
+    {
+      schema: {
+        tags: ["events"],
+        summary: "Fetch one event, with its payload",
+        security: secured,
+        params: eventIdParamSchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId, eventId } = eventIdParamSchema.parse(request.params);
 
-    return reply.send(success(event));
-  });
+      const event = await getEvent(projectId, request.user.sub, eventId);
 
-  app.get("/projects/:projectId/events/:eventId/deliveries", async (request, reply) => {
-    const { projectId, eventId } = eventIdParamSchema.parse(request.params);
+      return reply.send(success(event));
+    },
+  );
 
-    const deliveries = await getEventDeliveries(projectId, request.user.sub, eventId);
+  app.get(
+    "/projects/:projectId/events/:eventId/deliveries",
+    {
+      schema: {
+        tags: ["events"],
+        summary: "Delivery history for an event",
+        description:
+          "One delivery per webhook, each with its full attempt history — status " +
+          "code, error and duration per attempt. This is the endpoint that answers " +
+          "why a webhook did not arrive.",
+        security: secured,
+        params: eventIdParamSchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId, eventId } = eventIdParamSchema.parse(request.params);
 
-    return reply.send(success(deliveries));
-  });
+      const deliveries = await getEventDeliveries(projectId, request.user.sub, eventId);
 
-  app.get("/projects/:projectId/deliveries/:deliveryId", async (request, reply) => {
-    const { projectId, deliveryId } = deliveryIdParamSchema.parse(request.params);
+      return reply.send(success(deliveries));
+    },
+  );
 
-    const delivery = await getDelivery(projectId, request.user.sub, deliveryId);
+  app.get(
+    "/projects/:projectId/deliveries/:deliveryId",
+    {
+      schema: {
+        tags: ["events"],
+        summary: "Fetch one delivery",
+        security: secured,
+        params: deliveryIdParamSchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId, deliveryId } = deliveryIdParamSchema.parse(request.params);
 
-    return reply.send(success(delivery));
-  });
+      const delivery = await getDelivery(projectId, request.user.sub, deliveryId);
+
+      return reply.send(success(delivery));
+    },
+  );
 
   app.post(
     "/projects/:projectId/deliveries/:deliveryId/replay",
+    {
+      schema: {
+        tags: ["events"],
+        summary: "Queue a terminal delivery for another attempt",
+        description:
+          "Resets the row to PENDING and lets the scheduler pick it up; it sends " +
+          "nothing directly, so a replay inherits the same window cap, backoff and " +
+          "recovery as any other delivery. Only FAILED or DELIVERED can be " +
+          "replayed — anything in flight returns 409.",
+        security: secured,
+        params: deliveryIdParamSchema,
+      },
+    },
     async (request, reply) => {
       const { projectId, deliveryId } = deliveryIdParamSchema.parse(request.params);
 
@@ -89,11 +157,22 @@ export async function eventQueryRoutes(app: AppInstance): Promise<void> {
     },
   );
 
-  app.get("/projects/:projectId/stats", async (request, reply) => {
-    const { projectId } = projectIdParamSchema.parse(request.params);
+  app.get(
+    "/projects/:projectId/stats",
+    {
+      schema: {
+        tags: ["events"],
+        summary: "Delivery counts by status",
+        security: secured,
+        params: projectIdParamSchema,
+      },
+    },
+    async (request, reply) => {
+      const { projectId } = projectIdParamSchema.parse(request.params);
 
-    const deliveries = await getProjectStats(projectId, request.user.sub);
+      const deliveries = await getProjectStats(projectId, request.user.sub);
 
-    return reply.send(success({ deliveries }));
-  });
+      return reply.send(success({ deliveries }));
+    },
+  );
 }

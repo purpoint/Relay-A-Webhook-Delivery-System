@@ -65,7 +65,7 @@ Under construction, milestone by milestone. See [docs/milestone.md](docs/milesto
 - [x] **M3** — Execution window & scheduler: bounded Redis, Lua atomicity, SKIP LOCKED
 - [x] **M4** — Worker pool: HMAC signing, jittered backoff, lease recovery
 - [x] **M5** — Observability & hardening: delivery history, replay, Swagger, load test
-- [ ] **M6** — Live execution-window monitor (single screen)
+- [x] **M6** — Live monitor, refresh tokens, CI
 - [ ] **M7** — Deploy, with a public URL
 
 ## Running locally
@@ -153,6 +153,7 @@ Brings up Postgres, Redis, migrations, and the three tiers as separate services 
 | [Walkthrough — M3](docs/walkthrough-m3.md) | The bounded window, Lua atomicity, SKIP LOCKED |
 | [Walkthrough — M4](docs/walkthrough-m4.md) | HMAC signing, thundering herds, claiming without locks |
 | [Walkthrough — M5](docs/walkthrough-m5.md) | Delivery history, keyset pagination, and the proof |
+| [Walkthrough — M6](docs/walkthrough-m6.md) | Refresh tokens, rotation, the monitor page, CI |
 
 Reference:
 

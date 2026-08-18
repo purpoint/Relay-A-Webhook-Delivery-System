@@ -2,7 +2,7 @@
 
 A plain-English record of what this project is, why it's built the way it is, and what exists so far. No prior knowledge assumed. Every piece of jargon is explained the first time it appears.
 
-Updated through **M5 (Observability and the proof)**.
+Updated through **M6 (The monitor, sessions and CI)**.
 
 ---
 
@@ -554,7 +554,23 @@ nothing at all while 50,000 deliveries waited in Postgres.
 
 ---
 
-# Part 15 — Where the project stands
+# Part 15 — Milestone 6: The monitor, sessions and CI
+
+The live execution-window page, the session handling it forced, and continuous
+integration.
+
+### → **[walkthrough-m6.md](walkthrough-m6.md)**
+
+It covers why an access token belongs in memory and a refresh token in an
+httpOnly cookie, how rotation turns a stolen cookie from an undetectable
+week-long compromise into something the system notices and shuts down, a
+documentation page that returned 200 while being completely unusable, and a
+Dockerfile that would have shipped an image quietly missing half of what it
+should serve — caught by CI within two minutes of it existing.
+
+---
+
+# Part 16 — Where the project stands
 
 ## Verified working
 
@@ -585,6 +601,7 @@ The `503` is the **correct** answer — Redis genuinely isn't installed yet. The
 | **M3** | Execution window & scheduler — *the core idea* | **Done** |
 | **M4** | Worker pool — the delivery engine | **Done** |
 | **M5** | Observability & hardening — plus the proof | **Done** |
+| **M6** | Live monitor, refresh tokens, CI | **Done** |
 
 ## What "done" will look like
 

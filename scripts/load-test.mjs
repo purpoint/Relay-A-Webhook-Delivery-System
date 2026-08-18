@@ -57,12 +57,29 @@ async function api(path, { method = "GET", token, apiKey, body } = {}) {
   return json.data;
 }
 
+/**
+ * Prepare an account to publish into.
+ *
+ * By default this creates a throwaway account, which is right when the script
+ * runs on its own. But the monitor page shows delivery counts for **one
+ * project**, so publishing into a fresh account means watching your own
+ * project sit at zero while the numbers land somewhere invisible. Pass
+ * `--email` and `--password` to publish into an account you are signed into,
+ * and the page will show what this script is doing.
+ */
 async function setUp() {
-  const email = `load-${Date.now()}@relay.test`;
+  const email = args.get("email");
+  const password = args.get("password");
+
+  if (email && password) {
+    return setUpExisting(email, password);
+  }
+
+  const throwaway = `load-${Date.now()}@relay.test`;
 
   const { token } = await api("/api/v1/auth/register", {
     method: "POST",
-    body: { email, password: "correct-horse-battery-staple" },
+    body: { email: throwaway, password: "correct-horse-battery-staple" },
   });
 
   const project = await api("/api/v1/projects", {
@@ -82,6 +99,58 @@ async function setUp() {
     token,
     body: { url: RECEIVER },
   });
+
+  console.log(
+    `Created throwaway account ${throwaway}.\n` +
+      `  To watch this on the monitor instead, re-run with:\n` +
+      `  npm run load-test -- --email you@example.com --password your-password\n`,
+  );
+
+  return { token, projectId: project.id, apiKey: key.plaintext };
+}
+
+/** Sign in to an existing account and reuse its first project. */
+async function setUpExisting(email, password) {
+  const { token } = await api("/api/v1/auth/login", {
+    method: "POST",
+    body: { email, password },
+  });
+
+  const projects = await api("/api/v1/projects", { token });
+
+  const project =
+    projects[0] ??
+    (await api("/api/v1/projects", {
+      method: "POST",
+      token,
+      body: { name: "Load test" },
+    }));
+
+  /**
+   * Ensure the receiver is registered.
+   *
+   * Note this needs the JWT, not the API key — an API key deliberately cannot
+   * manage webhooks, so a script holding only a key could not do this. That
+   * restriction is the M1 containment design working as intended.
+   */
+  const webhooks = await api(`/api/v1/projects/${project.id}/webhooks`, { token });
+
+  if (!webhooks.some((w) => w.url === RECEIVER && w.isActive)) {
+    await api(`/api/v1/projects/${project.id}/webhooks`, {
+      method: "POST",
+      token,
+      body: { url: RECEIVER },
+    });
+    console.log(`Registered ${RECEIVER} on "${project.name}".`);
+  }
+
+  const key = await api(`/api/v1/projects/${project.id}/api-keys`, {
+    method: "POST",
+    token,
+    body: { name: `load-${new Date().toISOString().slice(0, 16)}` },
+  });
+
+  console.log(`Publishing into "${project.name}" (${email}) — watch the monitor.\n`);
 
   return { token, projectId: project.id, apiKey: key.plaintext };
 }

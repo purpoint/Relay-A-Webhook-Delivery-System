@@ -49,10 +49,12 @@ services:
 
   api:
     build: .
-    command: node dist/server.js
+    command: node dist/main.js
+    # Every service runs the same image; RELAY_ROLE selects the tier.
     environment: &app-env
       NODE_ENV: production
       LOG_LEVEL: info
+      RELAY_ROLE: api
       PORT: 3000
       HOST: 0.0.0.0
       DATABASE_URL: postgresql://relay:relay@postgres:5432/relay?schema=public
@@ -76,8 +78,10 @@ services:
 
   scheduler:
     build: .
-    command: node dist/scheduler/main.js
-    environment: *app-env
+    command: node dist/main.js
+    environment:
+      <<: *app-env
+      RELAY_ROLE: scheduler
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,8 +96,10 @@ services:
 
   worker:
     build: .
-    command: node dist/workers/main.js
-    environment: *app-env
+    command: node dist/main.js
+    environment:
+      <<: *app-env
+      RELAY_ROLE: worker
     depends_on:
       postgres:
         condition: service_healthy

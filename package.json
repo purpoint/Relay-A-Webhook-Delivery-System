@@ -7,13 +7,13 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "dev:scheduler": "tsx watch src/scheduler/main.ts",
-    "dev:worker": "tsx watch src/workers/main.ts",
+    "dev": "tsx watch src/main.ts",
+    "dev:scheduler": "RELAY_ROLE=scheduler tsx watch src/main.ts",
+    "dev:worker": "RELAY_ROLE=worker tsx watch src/main.ts",
     "build": "npm run build:web && tsc -p tsconfig.build.json",
-    "start": "node dist/server.js",
-    "start:scheduler": "node dist/scheduler/main.js",
-    "start:worker": "node dist/workers/main.js",
+    "start": "node dist/main.js",
+    "start:scheduler": "RELAY_ROLE=scheduler node dist/main.js",
+    "start:worker": "RELAY_ROLE=worker node dist/main.js",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
@@ -29,7 +29,9 @@
     "receiver": "node scripts/receiver.mjs",
     "load-test": "node scripts/load-test.mjs",
     "build:web": "cd web && npm install && npm run build",
-    "dev:web": "cd web && npm run dev"
+    "dev:web": "cd web && npm run dev",
+    "dev:api": "RELAY_ROLE=api tsx watch src/main.ts",
+    "start:api": "RELAY_ROLE=api node dist/main.js"
   },
   "keywords": [
     "webhooks",

@@ -42,6 +42,7 @@ USER node
 
 EXPOSE 3000
 
-# All three entrypoints share this image; docker-compose overrides the command
-# for the scheduler and worker services.
-CMD ["node", "dist/server.js"]
+# One entrypoint for all three tiers; RELAY_ROLE selects which run. Defaults to
+# "all", so the image is usable as a single container without extra wiring —
+# docker-compose overrides the role to split them.
+CMD ["node", "dist/main.js"]

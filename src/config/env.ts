@@ -22,6 +22,17 @@ const envSchema = z.object({
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
 
+  /**
+   * Which of Relay's three tiers this process runs.
+   *
+   * `all` co-locates them in one process, which is right for development and
+   * for a deployment small enough that one machine handles the load. The tiers
+   * stay genuinely independent either way — they share no state and
+   * communicate only through Postgres and Redis — so splitting them later is a
+   * configuration change, not a rewrite.
+   */
+  RELAY_ROLE: z.enum(["api", "scheduler", "worker", "all"]).default("all"),
+
   // ── API server ────────────────────────────────────────────────────────────
   PORT: positiveInt.max(65535).default(3000),
   HOST: z.string().min(1).default("0.0.0.0"),

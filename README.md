@@ -75,16 +75,53 @@ npm install
 cp .env.example .env      # then fill in DATABASE_URL and JWT_SECRET
 createdb relay
 npm run db:migrate
+npm run build:web
 npm run dev
 ```
 
-Verify it's up:
+That's everything — API, scheduler and workers in one process. Open **http://localhost:3000**, and the API docs at **/docs**.
 
 ```bash
 curl -s localhost:3000/readyz
 ```
 
-`/readyz` genuinely reaches both datastores and returns 503 if either is unavailable, so a red response here means a real dependency is down.
+`/readyz` genuinely reaches both datastores and returns 503 if either is down, so a red response means a real dependency is unavailable.
+
+### One process or three
+
+`RELAY_ROLE` selects which tier a process runs:
+
+| | |
+|---|---|
+| `npm run dev` | all three — development, and small deployments |
+| `npm run dev:api` | HTTP server only |
+| `npm run dev:scheduler` | execution-window manager only |
+| `npm run dev:worker` | delivery pool only |
+
+The tiers are genuinely independent either way: they share no state and communicate only through Postgres and Redis, exactly as they would across machines. `all` simply co-locates them, which is the right call until one machine stops coping.
+
+### Watching it work
+
+Four terminals, or two if you use the combined role:
+
+```bash
+npm run receiver     # a fake customer endpoint on :4000, returning 500
+npm run dev          # api + scheduler + workers
+```
+
+Then publish a backlog into the account you're signed in as:
+
+```bash
+npm run load-test -- --email you@example.com --password your-password --events 20000
+```
+
+Watch the monitor. To see the cap hold, run `npm run dev:api` and `npm run dev:scheduler` **without** a worker — nothing drains, so Redis fills to 5,000 and stops while Postgres keeps climbing.
+
+Then repair the endpoint, with nothing restarted:
+
+```bash
+echo ok > /tmp/relay-receiver-mode
+```
 
 ### With Docker
 
@@ -92,7 +129,7 @@ curl -s localhost:3000/readyz
 JWT_SECRET=$(openssl rand -base64 36) docker compose up --build
 ```
 
-Brings up Postgres, Redis, migrations, the API, a scheduler and two workers. Add workers with `--scale worker=5`.
+Brings up Postgres, Redis, migrations, and the three tiers as separate services from the same image. Add workers with `--scale worker=5`.
 
 ## Design notes
 

@@ -1,5 +1,7 @@
 # Relay
 
+[![CI](https://github.com/purpoint/Relay-A-Webhook-Delivery-System/actions/workflows/ci.yml/badge.svg)](https://github.com/purpoint/Relay-A-Webhook-Delivery-System/actions/workflows/ci.yml)
+
 A webhook delivery platform built around one constraint: **Postgres stores every event forever, Redis holds only the next 5,000 executable jobs.**
 
 ## The problem

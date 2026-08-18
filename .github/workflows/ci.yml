@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A second push to the same branch cancels the first run still in progress.
+# The older result is about to be superseded anyway, and cancelling frees the
+# runner immediately.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck, lint and test
+    runs-on: ubuntu-latest
+
+    # Relay's tests run against a real Postgres and a real Redis rather than
+    # mocks, because most of what they verify is behaviour the datastores
+    # provide: FOR UPDATE SKIP LOCKED, unique constraints, Lua atomicity. A
+    # mock would assert that we call a function, not that the guarantee holds.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: relay
+          POSTGRES_PASSWORD: relay
+          POSTGRES_DB: relay_test
+        ports:
+          - 5432:5432
+        # Steps wait on this rather than on the container merely existing —
+        # Postgres accepts connections some seconds after the process starts.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://relay:relay@localhost:5432/relay_test?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-secret-that-is-at-least-32-characters-long
+      # Test webhooks target 127.0.0.1, which the SSRF guard blocks by default.
+      # Permitted here for the same reason as locally — and note the guard still
+      # rejects cloud metadata addresses even with this on.
+      ALLOW_PRIVATE_WEBHOOK_URLS: "true"
+      REQUIRE_HTTPS_WEBHOOKS: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the Dockerfile, so CI and the deployed image agree.
+          node-version: 22
+          cache: npm
+
+      # `ci` rather than `install`: it installs exactly what package-lock.json
+      # pins and fails if the lockfile and package.json disagree, which is the
+      # difference between reproducing a build and approximating one.
+      - name: Install dependencies
+        run: npm ci
+
+      # The Prisma client is generated from the schema and gitignored, so it
+      # must be built before anything imports it.
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    # Separate from the test job because it proves a different thing: that the
+    # project compiles for production. Tests run through tsx, which transpiles
+    # without typechecking the emitted output, so a green suite does not by
+    # itself mean `npm run build` succeeds.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build server and monitor page
+        run: npm run build
+
+      - name: Check the build produced what it should
+        run: |
+          test -f dist/main.js || { echo "dist/main.js missing"; exit 1; }
+          test -f public/index.html || { echo "public/index.html missing"; exit 1; }
+          echo "build output present"
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+
+    # Building the image is the closest cheap approximation of the deployment
+    # actually working. It catches a missing COPY or a step that only succeeds
+    # because of something present on a developer's machine.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          # Cache layers between runs, so an unchanged dependency layer is not
+          # reinstalled every time.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

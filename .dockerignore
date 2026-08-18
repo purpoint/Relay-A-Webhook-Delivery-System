@@ -1,5 +1,14 @@
-node_modules
+# `node_modules` alone matches only the top level, so web/node_modules would
+# otherwise be copied into the build context — slow, and wrong, since the
+# image installs its own with `npm ci`.
+**/node_modules
+
 dist
+
+# Generated inside the image by the web build. A stale local copy must not be
+# able to end up in the context and mask a broken build.
+public
+
 coverage
 .git
 .gitignore
@@ -10,3 +19,7 @@ src/generated
 docs
 *.md
 .claude
+.github
+tests
+scripts
+Screenshot*.png

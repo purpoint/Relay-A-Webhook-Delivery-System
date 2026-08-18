@@ -10,7 +10,7 @@
     "dev": "tsx watch src/main.ts",
     "dev:scheduler": "RELAY_ROLE=scheduler tsx watch src/main.ts",
     "dev:worker": "RELAY_ROLE=worker tsx watch src/main.ts",
-    "build": "npm run build:web && tsc -p tsconfig.build.json",
+    "build": "npm run build:web && npm run build:server",
     "start": "node dist/main.js",
     "start:scheduler": "RELAY_ROLE=scheduler node dist/main.js",
     "start:worker": "RELAY_ROLE=worker node dist/main.js",
@@ -31,7 +31,8 @@
     "build:web": "cd web && npm install && npm run build",
     "dev:web": "cd web && npm run dev",
     "dev:api": "RELAY_ROLE=api tsx watch src/main.ts",
-    "start:api": "RELAY_ROLE=api node dist/main.js"
+    "start:api": "RELAY_ROLE=api node dist/main.js",
+    "build:server": "tsc -p tsconfig.build.json"
   },
   "keywords": [
     "webhooks",
